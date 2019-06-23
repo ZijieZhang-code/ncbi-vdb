@@ -25,11 +25,11 @@
 */
 
 #include <klib/rc.h>
+#include <klib/text.h>
 #include <tui/tui_dlg.h>
 #include "tui_widget.h"
 
-
-void draw_label( struct KTUIWidget * w )
+void draw_tabhdr( struct KTUIWidget * w )
 {
     tui_rect r;
     rc_t rc = KTUIDlgAbsoluteRect ( w->dlg, &r, &w->r );
@@ -44,22 +44,34 @@ void draw_label( struct KTUIWidget * w )
             {
                 uint32_t x = r.top_left.x;
                 uint32_t y = r.top_left.y;
-                rc = DlgPaint( tui, x, y, r.w, r.h, ac.bg );
+                
+                rc = draw_background( tui, w -> focused, &( r . top_left ), r. w, r . h, ac . bg );
+                
+                //rc = DlgPaint( tui, x, y, r.w, r.h, ac.bg );
                 if ( rc == 0 && w->caption != NULL )
                 {
                     tui_ac hl_ac;   // the highlighted style
                     rc = GetWidgetHlAc( w, ktuipa_label, &hl_ac );
                     if ( rc == 0 )
-                        draw_highlighted( tui, x + 1, y, r.w - 2, &ac, &hl_ac, w->caption );
+                        draw_highlighted( tui, x + 2, y, r.w - 3, &ac, &hl_ac, w->caption );
                 }
             }
         }
     }
 }
 
-bool event_label( struct KTUIWidget * w, tui_event * event, bool hotkey )
+bool event_tabhdr( struct KTUIWidget * w, tui_event * event, bool hotkey )
 {
     bool res = hotkey;
+    if ( !res && event -> event_type == ktui_event_kb )
+    {
+        switch( event -> data . kb_data . code )
+        {
+            case ktui_enter : res = true; break;
+            case ktui_alpha : res = event -> data . kb_data . key == ' '; break;
+        }
+    }
+
     if ( res )
         KTUIDlgPushEvent( w -> dlg, ktuidlg_event_select, w -> id, 0, 0, NULL );
     return res;
