@@ -86,7 +86,7 @@ public:
             compare ( remote, expectedShort );
             RELEASE ( VPath, remote );
             REQUIRE_RC ( KNSManagerMakeReliableHttpFile
-                ( kns, & f, NULL, 0x01010000, false, false, expectedShort . c_str () ) );
+                ( kns, & f, NULL, 0x01010000, false, false, false, expectedShort . c_str () ) );
             RELEASE ( KFile, f );
         } else {
             REQUIRE_RC_FAIL ( VResolverQuery
@@ -99,7 +99,7 @@ public:
             compare ( remote, expectedLong );
             RELEASE ( VPath, remote );
             REQUIRE_RC ( KNSManagerMakeReliableHttpFile
-                ( kns, & f, NULL, 0x01010000, false, false, expectedLong . c_str () ) );
+                ( kns, & f, NULL, 0x01010000, false, false, false, expectedLong . c_str () ) );
             RELEASE ( KFile, f );
         } else {
             REQUIRE_RC_FAIL ( VResolverQuery
@@ -309,7 +309,7 @@ if ((string(acc) != "AAAB01" || string(value) != "refseq")
         REQUIRE_EQ ( num_read, num_readC );
         const KFile * f = NULL;
         REQUIRE_RC
-            (KNSManagerMakeReliableHttpFile(kns, &f, NULL, 0x01010000, false, false, buffer));
+            (KNSManagerMakeReliableHttpFile(kns, &f, NULL, 0x01010000, false, false, false, buffer));
         RELEASE ( KFile, f );
         if ( string (acc) == "AAAB01.1"
           && expected && expected [ 0 ] && string ( expected ) != buffer)
@@ -418,7 +418,7 @@ rc_t CC UsageSummary ( const char * prog_name ) { return 0; }
 extern "C" {
     ver_t CC KAppVersion ( void ) { return 0; }
     rc_t CC KMain ( int argc, char *argv [] ) {
-const char * p = getenv("http_proxy");
+//const char * p = getenv("http_proxy");
 //cerr << "http_proxy = '" << ( p == NULL ? "NULL" : p ) << "'\n";
 if ( 1 ) assert ( ! KDbgSetString ( "VFS" ) );
         KConfigDisableUserSettings();
