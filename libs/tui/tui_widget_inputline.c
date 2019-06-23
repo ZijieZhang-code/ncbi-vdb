@@ -131,24 +131,24 @@ void draw_inputline( struct KTUIWidget * w )
 }
 
 
-static bool always_handle_these_keys( tui_event * event, uint32_t h )
+static bool always_handle_these_keys( tui_event * event )
 {
 	bool res = false;
 	if ( event->event_type == ktui_event_kb )
 	{
 		switch( event->data.kb_data.code )
 		{
-			case ktui_left  :
-			case ktui_right : res = true; break;
-			case ktui_up    :
-			case ktui_down  : res = ( h > 1 ); break;
+			case ktui_left : ;
+			case ktui_right : ;
+			case ktui_up : ;
+			case ktui_down : res = true; break;
 		}
 	}
 	return res;
 }
 
 
-bool event_inputline( struct KTUIWidget * w, tui_event * event, bool hotkey )
+bool event_inputline( struct KTUIWidget * w, tui_event * event )
 {
     bool res;
 
@@ -175,7 +175,7 @@ bool event_inputline( struct KTUIWidget * w, tui_event * event, bool hotkey )
     }
 
 	if ( !res )
-		res = always_handle_these_keys( event, w->r.h );
+		res = always_handle_these_keys( event );
 
     return res;
 }
