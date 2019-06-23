@@ -23,23 +23,18 @@
 * ==============================================================================
 *
 */
-#include <kns/extern.h>
+#include "http-file-priv.h"
 
-#define KFILE_IMPL KHttpFile
-typedef struct KHttpFile KHttpFile;
-#include <kfs/impl.h>
+#include <kns/extern.h>
 
 #include "http-priv.h"
 #include "mgr-priv.h"
 #include "stream-priv.h"
 
-#include <kproc/lock.h>
 #include <kns/adapt.h>
 #include <kns/endpoint.h>
-#include <kns/http.h>
 #include <kns/impl.h>
 #include <kns/kns-mgr-priv.h> /* KHttpRetrier */
-#include <kns/manager.h>
 #include <kns/socket.h>
 #include <kns/stream.h>
 
@@ -58,7 +53,6 @@ typedef struct KHttpFile KHttpFile;
 #include <klib/rc.h>
 #include <klib/refcount.h>
 #include <klib/text.h>
-#include <klib/time.h> /* KSleep */
 #include <klib/vector.h>
 
 #include <kproc/timeout.h>
@@ -91,27 +85,6 @@ typedef struct KHttpFile KHttpFile;
 #define USE_CACHE_CONTROL 1
 #define NO_CACHE_LIMIT ( ( uint64_t ) ( 16 * 1024 * 1024 ) )
 
-/*--------------------------------------------------------------------------
- * KHttpFile
- */
-struct KHttpFile
-{
-    KFile dad;
-    
-    uint64_t file_size;
-
-    const KNSManager * kns;
-
-    KLock * lock;
-    KClientHttp *http;
-
-    KDataBuffer url_buffer;
-
-    bool no_cache;
-
-    bool payRequired;
-};
-
 static
 rc_t CC KHttpFileDestroy ( KHttpFile *self )
 {
@@ -119,6 +92,7 @@ rc_t CC KHttpFileDestroy ( KHttpFile *self )
     KNSManagerRelease ( self -> kns );
     KClientHttpRelease ( self -> http );
     KDataBufferWhack ( & self -> url_buffer );
+    KDataBufferWhack ( & self -> orig_url_buffer );
     free ( self );
 
     return 0;
@@ -164,6 +138,20 @@ rc_t KHttpFileMakeRequest ( const KHttpFile *self, uint64_t pos, size_t req_size
     * rslt = NULL;
     * http_status = 0;
 
+    if ( self -> url_is_temporary )
+    {   /* check for expiration of the URL */
+        /* KTime_t is in seconds */
+        const KTime_t now = KTimeStamp();
+        const KTime_t expTime = KTimeMakeTime ( & self -> url_expiration );
+        const KTime_t advance = 60;
+        if ( expTime < ( now + advance ) ) /* expires with 'advance' seconds */
+        {
+            //  replace current URL it with the original URL
+            //  self -> url_is_temporary = false
+            //  Expect the request to be redirected to the new temporary URL, which will be given the payment info if needed
+        }
+    }
+
     rc = KClientHttpMakeRequest ( self -> http, &req, self -> url_buffer . base );
     if ( rc != 0 )
     {
@@ -192,6 +180,7 @@ rc_t KHttpFileMakeRequest ( const KHttpFile *self, uint64_t pos, size_t req_size
 
             if ( rc == 0 )
             {
+//KNSTODO:  attach environment token if needed to req
                 KClientHttpRequestSetPayRequired(req, NULL, self->payRequired);
 
                 /* TBD - there should be a version of GET that takes a timeout */
@@ -209,6 +198,13 @@ rc_t KHttpFileMakeRequest ( const KHttpFile *self, uint64_t pos, size_t req_size
 
                         KClientHttpResultRelease ( * rslt );
                         * rslt = NULL;
+                    }
+                    else
+                    {
+//KNSTODO: if the request was redirected to a temporary URL, record the new expiration.
+// if ! self -> url_is_temporary && the new URL is temporary (i.e. a temp redirect happened, payment info attached if needed)
+//      capture new URL and expiration
+//      self -> url_is_temporary = true
                     }
                 }
             }
@@ -248,6 +244,15 @@ rc_t KHttpFileTimedReadInt ( const KHttpFile * self,
 
     size_t req_size = bsize;
 
+    if ( tm != 0 )
+    {
+        rc = TimeoutPrepare ( tm );
+         if ( rc != 0 )
+         {
+             return false;
+         }
+    }
+
     * http_status = 0;
 
     /* limit request size to EOF */
@@ -259,6 +264,7 @@ rc_t KHttpFileTimedReadInt ( const KHttpFile * self,
     for ( proxy_retries = 5; rc == 0 && proxy_retries != 0; )
     {
         KClientHttpResult * rslt = NULL;
+
         rc = KHttpFileMakeRequest ( self, pos, req_size, tm, & rslt, http_status );
         if ( rc == 0 )
         {
@@ -364,6 +370,7 @@ rc_t KHttpFileTimedReadInt ( const KHttpFile * self,
 #endif /* SUPPORT_CHUNKED_READ */
 
 #if ! SUPPORT_CHUNKED_READ
+
 static
 rc_t KHttpFileTimedReadInt ( const KHttpFile *cself,
     uint64_t aPos, void *aBuf, size_t aBsize,
@@ -373,8 +380,8 @@ rc_t KHttpFileTimedReadInt ( const KHttpFile *cself,
     rc_t rc = 0;
     KHttpFile *self = ( KHttpFile * ) cself;
     KClientHttp *http = self -> http;
-    
-    * http_status = 0; 
+
+    * http_status = 0;
 
     /* starting position was beyond EOF */
     if ( pos >= self -> file_size )
@@ -390,7 +397,7 @@ rc_t KHttpFileTimedReadInt ( const KHttpFile *cself,
     }
 #endif
     /* starting position was within file but the range fell beyond EOF */
-    else 
+    else
     {
         KClientHttpRequest *req;
 
@@ -402,6 +409,12 @@ rc_t KHttpFileTimedReadInt ( const KHttpFile *cself,
         void *bPtr = aBuf;
         size_t bsize = aBsize;
         uint32_t proxy_retries;
+
+        rc = CloudRefresh( self, tm );
+        if ( rc != 0 )
+        {
+            return rc;
+        }
 
         /* extend buffer size to MIN_SZ */
         if ( bsize < sizeof buf )
@@ -456,7 +469,7 @@ otherwise we are going to hit "Apache return HTTP headers twice" bug */
                 else
                 {
                     KClientHttpResult *rslt;
-                
+
                     rc = KClientHttpRequestGET ( req, &rslt );
                     if ( rc != 0 )
                         TRACE ( "KClientHttpRequestGET ( req, & rslt ); failed: rc=%u\n", rc );
@@ -518,7 +531,7 @@ otherwise we are going to hit "Apache return HTTP headers twice" bug */
                                      or when the whole file was returned */
 
                                     KStream *response;
-                                
+
                                     rc = KClientHttpResultGetInputStream ( rslt, &response );
                                     if ( rc == 0 )
                                     {
@@ -590,7 +603,7 @@ otherwise we are going to hit "Apache return HTTP headers twice" bug */
 
     if ( rc != 0 || * num_read == 0 )
         KClientHttpClose ( http );
-    
+
     return rc;
 }
 #endif /* ! SUPPORT_CHUNKED_READ */
@@ -616,7 +629,7 @@ rc_t KHttpFileTimedReadShort ( const KHttpFile * self,
         {
             if ( * num_read > bsize )
                 * num_read = bsize;
-                    
+
             /* move bytes out into supplied buffer.
                because we know that file size <= 256,
                and we know that pos < file_size, we
@@ -643,13 +656,13 @@ rc_t KHttpFileTimedReadShort ( const KHttpFile * self,
         assert ( pos >= d );
         rc = KHttpFileTimedReadInt ( self, pos - d, min_read_buffer,
             sizeof min_read_buffer, num_read, tm, http_status );
-        
+
         /* transfer any bytes read up to bsize */
         if ( * num_read != 0 )
         {
             if ( * num_read > bsize )
                 * num_read = bsize;
-                    
+
             assert ( d + * num_read <= sizeof min_read_buffer );
             memmove ( buf, & min_read_buffer [ d ], * num_read );
         }
@@ -669,7 +682,7 @@ rc_t KHttpFileTimedReadShort ( const KHttpFile * self,
         {
             if ( * num_read > bsize )
                 * num_read = bsize;
-                    
+
             memmove ( buf, min_read_buffer, * num_read );
         }
     }
@@ -722,32 +735,31 @@ rc_t CC KHttpFileTimedRead ( const KHttpFile *self,
 {
     KHttpRetrier retrier;
     rc_t rc = KHttpRetrierInit ( & retrier, self -> url_buffer . base, self -> kns );
-    
     if ( rc == 0 )
     {
         rc_t rc2;
 
         DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ),
             ( "KHttpFileTimedRead(pos=%lu,size=%zu)...\n", pos, bsize ) );
-        
+
         /* loop using existing KClientHttp object */
-        while ( rc == 0 ) 
+        while ( rc == 0 )
         {
             uint32_t http_status;
             rc = KHttpFileTimedReadLocked ( self, pos, buffer, bsize, num_read, tm, & http_status );
-            if ( rc != 0 ) 
-            {   
-                rc2 = KClientHttpReopen ( self -> http );
+            if ( rc != 0 )
+            {
+                rc_t rc2=KClientHttpReopen ( self -> http );
                 DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ), ( "KHttpFileTimedRead: KHttpFileTimedReadLocked failed, reopening\n" ) );
                 if ( rc2 == 0 )
                 {
                     rc2 = KHttpFileTimedReadLocked ( self, pos, buffer, bsize, num_read, tm, & http_status );
-                    if ( rc2 == 0 ) 
+                    if ( rc2 == 0 )
                     {
                         DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ), ( "KHttpFileTimedRead: reopened successfully\n" ) );
                         rc= 0;
                     }
-                    else 
+                    else
                     {
                         DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ), ( "KHttpFileTimedRead: reopen failed\n" ) );
                         break;
@@ -764,7 +776,7 @@ rc_t CC KHttpFileTimedRead ( const KHttpFile *self,
             }
             rc = KClientHttpReopen ( self -> http );
         }
-        
+
         rc2 = KHttpRetrierDestroy ( & retrier );
         if ( rc == 0 )
             rc = rc2;
@@ -783,7 +795,7 @@ rc_t CC KHttpFileTimedRead ( const KHttpFile *self,
             self -> url_buffer . base,
             ep . ip_address, bsize, local_ep . ip_address ) );
     }
-    
+
     return rc;
 }
 
@@ -798,14 +810,14 @@ rc_t CC KHttpFileRead ( const KHttpFile *self, uint64_t pos,
 }
 
 static
-rc_t CC KHttpFileWrite ( KHttpFile *self, uint64_t pos, 
+rc_t CC KHttpFileWrite ( KHttpFile *self, uint64_t pos,
     const void *buffer, size_t size, size_t *num_writ )
 {
     return RC ( rcNS, rcFile, rcUpdating, rcInterface, rcUnsupported );
 }
 
 static
-rc_t CC KHttpFileTimedWrite ( KHttpFile *self, uint64_t pos, 
+rc_t CC KHttpFileTimedWrite ( KHttpFile *self, uint64_t pos,
     const void *buffer, size_t size, size_t *num_writ, struct timeout_t *tm )
 {
     return RC ( rcNS, rcFile, rcUpdating, rcInterface, rcUnsupported );
@@ -1069,9 +1081,9 @@ rc_t CC KHttpFileTimedReadChunked ( const KHttpFile * self, uint64_t pos,
 
         DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ),
             ( "KHttpFileTimedReadChunked(pos=%lu,size=%zu)...\n", pos, bytes ) );
-        
+
         /* loop using existing KClientHttp object */
-        while ( rc == 0 ) 
+        while ( rc == 0 )
         {
             uint32_t http_status;
             rc = KHttpFileTimedReadChunkedLocked ( self, pos, chunks, bytes, num_read, tm, & http_status );
@@ -1080,8 +1092,8 @@ rc_t CC KHttpFileTimedReadChunked ( const KHttpFile * self, uint64_t pos,
             pos += * num_read;
             bytes -= * num_read;
 
-            if ( rc != 0 ) 
-            {   
+            if ( rc != 0 )
+            {
                 rc2 = KClientHttpReopen ( self -> http );
                 DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ), ( "KHttpFileTimedReadChunked: "
                     "KHttpFileTimedReadChunkedLocked failed, reopening\n" ) );
@@ -1093,13 +1105,13 @@ rc_t CC KHttpFileTimedReadChunked ( const KHttpFile * self, uint64_t pos,
                     pos += * num_read;
                     bytes -= * num_read;
 
-                    if ( rc2 == 0 ) 
+                    if ( rc2 == 0 )
                     {
                         DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ), ( "KHttpFileTimedReadChunked: "
                                                                        "reopened successfully\n" ) );
                         rc = 0;
                     }
-                    else 
+                    else
                     {
                         DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ), ( "KHttpFileTimedReadChunked: "
                                                                        "reopen failed\n" ) );
@@ -1118,7 +1130,7 @@ rc_t CC KHttpFileTimedReadChunked ( const KHttpFile * self, uint64_t pos,
             }
             rc = KClientHttpReopen ( self -> http );
         }
-        
+
         rc2 = KHttpRetrierDestroy ( & retrier );
         if ( rc == 0 )
             rc = rc2;
@@ -1152,7 +1164,7 @@ rc_t CC KHttpFileReadChunked ( const KHttpFile * self, uint64_t pos,
 }
 #endif /* SUPPORT_CHUNKED_READ */
 
-static KFile_vt_v1 vtKHttpFile = 
+static KFile_vt_v1 vtKHttpFile =
 {
     1,
 #if SUPPORT_CHUNKED_READ
@@ -1178,8 +1190,8 @@ static KFile_vt_v1 vtKHttpFile =
 };
 
 static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
-    const KFile **file, KStream *conn, ver_t vers, bool reliable,
-    bool payRequired, const char *url, va_list args )
+    const KFile **file, KStream *conn, ver_t vers, bool reliable, bool need_env_token, bool payRequired,
+    const char *url, va_list args )
 {
     rc_t rc;
 
@@ -1208,41 +1220,54 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                     rc = KLockMake ( & f -> lock );
                     if ( rc == 0 )
                     {
-                        KDataBuffer urlbuf, *const buf = &urlbuf;
+                        KDataBuffer *const buf = & f -> orig_url_buffer;
 
                         memset(buf, 0, sizeof(*buf));
                         buf -> elem_bits = 8;
                         rc = KDataBufferVPrintf ( buf, url, args );
                         if ( rc == 0 )
                         {
-                            URLBlock block;
-                            rc = ParseUrl ( &block, buf -> base, buf -> elem_count - 1 );
-                            if ( rc == 0 ) 
+                            rc = ParseUrl ( & f -> block, buf -> base, buf -> elem_count - 1 );
+                            if ( rc == 0 )
                             {
                                 KClientHttp *http;
-                          
                                 rc = KNSManagerMakeClientHttpInt ( self, & http, buf, conn, vers,
-                                    self -> http_read_timeout, self -> http_write_timeout, &block . host, block . port, reliable, block . tls );
+                                    self -> http_read_timeout, self -> http_write_timeout, & f -> block . host, f -> block . port, reliable, f -> block . tls );
                                 if ( rc == 0 )
                                 {
                                     KClientHttpRequest *req;
 
-                                    rc = KClientHttpMakeRequestInt ( http, &req, &block, buf );
+                                    rc = KClientHttpMakeRequestInt ( http, & req, & f -> block, buf );
                                     if ( rc == 0 )
                                     {
                                         KClientHttpResult *rslt;
 
-                                        KClientHttpRequestSetPayRequired(req,
-                                            self, payRequired);
-
-                                        rc = KClientHttpRequestHEAD ( req, & rslt );
-#if 1
-                                        KClientHttpRequestURL ( req, & f -> url_buffer ); /* NB. f -> url_buffer is not valid until this point */
-#else
-                                        KDataBufferSub ( buf, & f -> url_buffer, 0, buf -> elem_count ); /* old behavior: breaks if redirected */
+//KNSTODO: attach environment token if needed to req
+#if 0
+if ( need_env_token )
+{
+    extern rc_t AddCloudStuff(  KClientHttpRequest *req );
+    AddCloudStuff ( req );
+}
 #endif
+                                        KClientHttpRequestSetPayRequired ( req, self, payRequired );
+
+//KNSTODO: convert to GET if payment is required (out here or inside the call)
+                                        rc = KClientHttpRequestHEAD ( req, & rslt );
+                                        if ( rc == 0 && rslt -> expiration != NULL )
+                                        {   /* retrieve and save the URL expiration time */
+                                            f -> url_is_temporary = true;
+                                            KTimeFromIso8601 ( & f -> url_expiration, rslt -> expiration, string_size ( rslt -> expiration ) );
+//KNSTODO: still, handle the expiration in read methods (find out how AWS/GCP signal expiration)
+                                        }
+
+                                        /* update url_buffer with the (possibly different and/or temporary) URL*/
+                                        KClientHttpRequestURL ( req, & f -> url_buffer ); /* NB. f -> url_buffer is not valid until this point */
+                                        DBGMSG ( DBG_KNS, DBG_FLAG ( DBG_KNS_HTTP ),
+                                            ( "HttpFile.URL updated to '%.*s'\n",
+                                                ( int ) f -> url_buffer . elem_count, f -> url_buffer . base ) );
                                         KClientHttpRequestRelease ( req );
-                                        
+
                                         if ( rc != 0 ) {
                                             if ( KNSManagerLogNcbiVdbNetError ( self ) )
                                             {
@@ -1304,10 +1329,10 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                                         f -> file_size = size;
                                                         f -> http = http;
                                                         f -> no_cache = size >= NO_CACHE_LIMIT;
+                                                        f -> need_env_token = need_env_token;
                                                         f -> payRequired = payRequired;
-                                                        
+
                                                         * file = & f -> dad;
-                                                        KDataBufferWhack(buf);
                                                         return 0;
                                                     }
                                                 }
@@ -1370,7 +1395,7 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                             }
                         }
                         KDataBufferWhack( & f -> url_buffer );
-                        KDataBufferWhack ( buf );
+                        KDataBufferWhack ( & f -> orig_url_buffer );
                         KLockRelease ( f -> lock );
                     }
                 }
@@ -1383,6 +1408,7 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
 
     return rc;
 }
+
 /******************************************************************************/
 
 LIB_EXPORT rc_t CC KNSManagerMakeHttpFile(const KNSManager *self,
@@ -1391,46 +1417,18 @@ LIB_EXPORT rc_t CC KNSManagerMakeHttpFile(const KNSManager *self,
     rc_t rc = 0;
     va_list args;
     va_start(args, url);
-    rc = KNSManagerVMakeHttpFileInt ( self, file, conn, vers, false, false,
-        url, args);
+    rc = KNSManagerVMakeHttpFileInt ( self, file, conn, vers, false, false, false, url, args);
     va_end(args);
     return rc;
 }
 
 LIB_EXPORT rc_t CC KNSManagerMakeReliableHttpFile(const KNSManager *self,
-    const KFile **file, struct KStream *conn, ver_t vers, const char *url, ...)
+    const KFile **file, struct KStream *conn, ver_t vers, bool reliable, bool need_env_token, bool payRequired, const char *url, ...)
 {
     rc_t rc = 0;
     va_list args;
     va_start(args, url);
-    rc = KNSManagerVMakeHttpFileInt ( self, file, conn, vers, true, false,
-        url, args);
-    va_end(args);
-    return rc;
-}
-
-LIB_EXPORT rc_t CC KNSManagerMakePaidHttpFile(const KNSManager *self,
-    const KFile **file, struct KStream *conn, ver_t vers, bool payRequired,
-    const char *url, ...)
-{
-    rc_t rc = 0;
-    va_list args;
-    va_start(args, url);
-    rc = KNSManagerVMakeHttpFileInt ( self, file, conn, vers, true, payRequired,
-        url, args);
-    va_end(args);
-    return rc;
-}
-
-LIB_EXPORT rc_t CC KNSManagerMakePaidReliableHttpFile(const KNSManager *self,
-    const KFile **file, struct KStream *conn, ver_t vers, bool payRequired,
-    const char *url, ...)
-{
-    rc_t rc = 0;
-    va_list args;
-    va_start(args, url);
-    rc = KNSManagerVMakeHttpFileInt ( self, file, conn, vers, true, payRequired,
-        url, args);
+    rc = KNSManagerVMakeHttpFileInt ( self, file, conn, vers, true, need_env_token, payRequired, url, args);
     va_end(args);
     return rc;
 }
