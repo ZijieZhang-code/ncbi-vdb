@@ -22,90 +22,67 @@
 #
 # ===========================================================================
 
-default: all
+
+default: runtests
 
 TOP ?= $(abspath ../..)
+MODULE = test/cloud
 
-MODULE = libs/vfs
-
-INT_LIBS = \
-	libvfs
-
-ALL_LIBS = \
-	$(INT_LIBS)
-
-OBJFILES = \
-	$(VFS_OBJ)
+TEST_TOOLS = \
+	test-cloud \
 
 include $(TOP)/build/Makefile.env
 
-RWORKDIR=$(TOP)/$(MODULE)
+ALL_TOOLS = \
+	$(INT_TOOLS) \
+	$(EXT_TOOLS)
 
 #-------------------------------------------------------------------------------
 # outer targets
 #
-all std: makedirs compile
-	@ $(MAKE_CMD) $(TARGDIR)/std
+all std: makedirs
+	@ $(MAKE_CMD) $(TARGDIR)/$@
 
-$(INT_LIBS): makedirs
-	@ $(MAKE_CMD) $(ILIBDIR)/$@
+$(ALL_TOOLS): makedirs
+	@ $(MAKE_CMD) $(BINDIR)/$@
 
-.PHONY: all std $(ALL_LIBS)
+.PHONY: all std $(ALL_TOOLS)
+
+#-------------------------------------------------------------------------------
+# all
+#
+$(TARGDIR)/all: \
+	$(addprefix $(BINDIR)/,$(ALL_TOOLS))
+
+.PHONY: $(TARGDIR)/all
 
 #-------------------------------------------------------------------------------
 # std
 #
 $(TARGDIR)/std: \
-	$(addprefix $(ILIBDIR)/,$(INT_LIBS))
+	$(addprefix $(BINDIR)/,$(EXT_TOOLS))
 
-.PHONY: $(TARGDIR)/std
+$(TEST_TOOLS): makedirs
+	@ $(MAKE_CMD) $(TEST_BINDIR)/$@
 
-#-------------------------------------------------------------------------------
-# clean
-#
 clean: stdclean
 
-.PHONY: clean
-
-#-------------------------------------------------------------------------------
-# vfs
+#----------------------------------------------------------------
+# test-cloud
 #
-$(ILIBDIR)/libvfs: $(addprefix $(ILIBDIR)/libvfs.,$(ILIBEXT))
+CLOUD_SRC = \
+	test-cloud
 
-VFS_SRC_CMN = \
-	json-response \
-	manager \
-	remote-services \
-	resolver \
-	resolver-3.0 \
-	services \
-	srv-response \
-	syspath \
+CLOUD_OBJ = \
+	$(addsuffix .$(OBJX),$(CLOUD_SRC))
 
-VFS_SRC = \
-	path \
-	$(VFS_SRC_CMN)
+CLOUD_LIB = \
+	-skapp \
+    -sncbi-vdb \
+    -sktst \
 
-VFS_OBJ = \
-	$(addsuffix .$(LOBX),$(VFS_SRC))
+$(TEST_BINDIR)/test-cloud: $(CLOUD_OBJ)
+	$(LP) --exe -o $@ $^ $(CLOUD_LIB)
 
-VFS_LIB = \
-	-lkns \
-	-lkns \
-	-lkrypto \
-	-lkfg \
-	-lkfs \
-	-lklib
-
-$(ILIBDIR)/libvfs.$(LIBX): $(VFS_OBJ)
-	$(LD) --slib -o $@ $^ $(VFS_LIB)
-
-
-compile: stdcompile
-
-$(TARGDIR)/compile: $(OBJFILES)
-#-------------------------------------------------------------------------------
-# fuzz
-#
-fuzz: std
-	cp $(addsuffix .$(LIBX),$(addprefix $(ILIBDIR)/,$(INT_LIBS))) $(FLIBDIR)/
+cloud: test-kns
+	$(TEST_BINDIR)/test-cloud  #-l=all

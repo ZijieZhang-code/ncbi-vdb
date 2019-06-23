@@ -110,7 +110,7 @@ rc_t KNSManagerWhack ( KNSManager * self )
 #endif
 
     KNSProxiesWhack ( self -> proxies );
-    CloudRelease(self->cloud);
+    CloudReleaseOld(self->cloud);
 
     if ( self -> aws_access_key_id != NULL )
         StringWhack ( self -> aws_access_key_id );
@@ -123,7 +123,7 @@ rc_t KNSManagerWhack ( KNSManager * self )
 
     if ( self -> aws_output != NULL )
         StringWhack ( self -> aws_output );
-    
+
     rc = HttpRetrySpecsDestroy ( & self -> retry_specs );
 
     KTLSGlobalsWhack ( & self -> tlsg );
@@ -206,7 +206,7 @@ void KNSManagerLoadAWS ( struct KNSManager *self, const KConfig * kfg )
                 if ( rc != 0 )
                     break;
             }
-        
+
             rc = KConfigNodeOpenNodeRead ( aws_node, &region_node, "region" );
             if ( rc == 0 )
             {
@@ -224,7 +224,7 @@ void KNSManagerLoadAWS ( struct KNSManager *self, const KConfig * kfg )
                 rc = KConfigNodeReadString ( output_node, &output );
 
                 KConfigNodeRelease ( output_node );
-                
+
                 if ( rc != 0 )
                     break;
             }
@@ -321,7 +321,7 @@ LIB_EXPORT bool KNSManagerIsVerbose ( const KNSManager *self )
  *
  *  "from" [ IN ] - client endpoint
  *
- *  "to" [ IN ] - server endpoint 
+ *  "to" [ IN ] - server endpoint
  *
  *  both endpoints have to be of type epIP; creates a TCP connection
  */
@@ -342,7 +342,7 @@ LIB_EXPORT rc_t CC KNSManagerMakeConnection ( const KNSManager * self,
 
     TimeoutInit ( & tm, self -> conn_timeout );
 
-    return KNSManagerMakeRetryTimedConnection ( self, conn, 
+    return KNSManagerMakeRetryTimedConnection ( self, conn,
         & tm, self -> conn_read_timeout, self -> conn_write_timeout, from, to );
 }
 /* MakeTimedConnection
@@ -351,7 +351,7 @@ LIB_EXPORT rc_t CC KNSManagerMakeConnection ( const KNSManager * self,
  *  "conn" [ OUT ] - a stream for communication with the server
  *
  *  "retryTimeout" [ IN ] - if connection is refused, retry with 1ms intervals: when negative, retry infinitely,
- *   when 0, do not retry, positive gives maximum wait time in seconds 
+ *   when 0, do not retry, positive gives maximum wait time in seconds
  *
  *  "readMillis" [ IN ] and "writeMillis" - when negative, infinite timeout
  *   when 0, return immediately, positive gives maximum wait time in mS
@@ -359,7 +359,7 @@ LIB_EXPORT rc_t CC KNSManagerMakeConnection ( const KNSManager * self,
  *
  *  "from" [ IN ] - client endpoint
  *
- *  "to" [ IN ] - server endpoint 
+ *  "to" [ IN ] - server endpoint
  *
  *  both endpoints have to be of type epIP; creates a TCP connection
  */
@@ -381,24 +381,24 @@ LIB_EXPORT rc_t CC KNSManagerMakeTimedConnection ( struct KNSManager const * sel
 
     TimeoutInit ( & tm, self -> conn_timeout );
 
-    return KNSManagerMakeRetryTimedConnection ( self, conn, 
+    return KNSManagerMakeRetryTimedConnection ( self, conn,
         & tm, readMillis, writeMillis, from, to );
-}    
-    
+}
+
 /* MakeRetryConnection
  *  create a connection-oriented stream
  *
  *  "conn" [ OUT ] - a stream for communication with the server
  *
  *  "retryTimeout" [ IN ] - if connection is refused, retry with 1ms intervals: when negative, retry infinitely,
- *   when 0, do not retry, positive gives maximum wait time in seconds 
+ *   when 0, do not retry, positive gives maximum wait time in seconds
  *
  *  "from" [ IN ] - client endpoint
  *
- *  "to" [ IN ] - server endpoint 
+ *  "to" [ IN ] - server endpoint
  *
  *  both endpoints have to be of type epIP; creates a TCP connection
- */    
+ */
 LIB_EXPORT rc_t CC KNSManagerMakeRetryConnection ( struct KNSManager const * self,
     struct KSocket ** conn, timeout_t * retryTimeout,
     struct KEndPoint const * from, struct KEndPoint const * to )
@@ -413,9 +413,9 @@ LIB_EXPORT rc_t CC KNSManagerMakeRetryConnection ( struct KNSManager const * sel
         return RC ( rcNS, rcStream, rcConstructing, rcSelf, rcNull );
     }
 
-    return KNSManagerMakeRetryTimedConnection ( self, conn, 
+    return KNSManagerMakeRetryTimedConnection ( self, conn,
         retryTimeout, self -> conn_read_timeout, self -> conn_write_timeout, from, to );
-}    
+}
 
 /* SetConnectionTimeouts
  *  sets default connect/read/write timeouts to supply to sockets
@@ -433,7 +433,7 @@ LIB_EXPORT rc_t CC KNSManagerSetConnectionTimeouts ( KNSManager *self,
     /* limit values */
     if ( connectMillis < 0 || connectMillis > MAX_CONN_LIMIT )
         connectMillis = MAX_CONN_LIMIT;
-        
+
     if ( readMillis < 0 || readMillis > MAX_CONN_READ_LIMIT )
         readMillis = MAX_CONN_READ_LIMIT;
 
@@ -587,54 +587,18 @@ static void KNSManagerSetNCBI_VDB_NET ( KNSManager * self, const KConfig * kfg )
 
     KConfigNodeRelease ( node );
     node = NULL;
-} 
+}
 
 
-/* VDB-DESIREMENTS:
-1. to call *[s]/kfg/properties* to read configuration
-2. to create a header file to keep constants (node names) */
-static int32_t KNSManagerPrepareConnTimeout(KConfig* kfg) {
-    int64_t result = 0;
-    rc_t rc = KConfigReadI64(kfg, "/libs/kns/connect/timeout", &result);
-    if (rc != 0 || result < 0)
-        return MAX_CONN_LIMIT;
-    else
-        return result;
-}
-static int32_t KNSManagerPrepareConnReadTimeout(KConfig* kfg) {
-    int64_t result = 0;
-    rc_t rc = KConfigReadI64(kfg, "/libs/kns/connect/timeout/read", &result);
-    if (rc != 0 || result < 0)
-        return MAX_CONN_READ_LIMIT;
-    else
-        return result;
-}
-static int32_t KNSManagerPrepareConnWriteTimeout(KConfig* kfg) {
-    int64_t result = 0;
-    rc_t rc = KConfigReadI64(kfg, "/libs/kns/connect/timeout/write", &result);
-    if (rc != 0 || result < 0)
-        return MAX_CONN_WRITE_LIMIT;
-    else
-        return result;
-}
 static int32_t KNSManagerPrepareHttpReadTimeout(KConfig* kfg) {
     int64_t result = 0;
     rc_t rc = KConfigReadI64(kfg, "/http/timeout/read", &result);
-    if (rc != 0 || result < 0)
+    if (rc == 0)
+        return result;
+    else
         return MAX_HTTP_READ_LIMIT;
-    else
-        return result;
-}
-static int32_t KNSManagerPrepareHttpWriteTimeout(KConfig* kfg) {
-    int64_t result = 0;
-    rc_t rc = KConfigReadI64(kfg, "/http/timeout/write", &result);
-    if (rc != 0 || result < 0)
-        return MAX_HTTP_WRITE_LIMIT;
-    else
-        return result;
 }
 
-#if 0
 static bool KNSManagerPrepareLogTlsErrors(KConfig* kfg) {
     const char * e = getenv("NCBI_VDB_TLS_LOG_ERR");
     if (e != NULL)
@@ -658,21 +622,6 @@ static bool KNSManagerPrepareLogTlsErrors(KConfig* kfg) {
             return log;
     }
 }
-
-static int KNSManagerPrepareEmulateTldReadErrors(KConfig* kfg) {
-    const char * e = getenv("NCBI_VDB_ERR_MBEDTLS_READ");
-    if (e != NULL)
-        return atoi(e);
-    else {
-        int64_t emult = 0;
-        rc_t rc = KConfigReadI64(kfg, "/tls/NCBI_VDB_ERR_MBEDTLS_READ", &emult);
-        if (rc != 0)
-            return 0;
-        else
-            return emult;
-    }
-}
-#endif
 
 static bool KNSManagerPrepareResolveToCache(KConfig* kfg) {
     /* VResolverCache resolve to user's cache vs. cwd/AD */
@@ -722,17 +671,15 @@ LIB_EXPORT rc_t CC KNSManagerMakeConfig ( KNSManager **mgrp, KConfig* kfg )
         else
         {
             KRefcountInit ( & mgr -> refcount, 1, "KNSManager", "init", "kns" );
-            mgr -> conn_timeout = KNSManagerPrepareConnTimeout(kfg);
-            mgr -> conn_read_timeout = KNSManagerPrepareConnReadTimeout(kfg);
-            mgr -> conn_write_timeout = KNSManagerPrepareConnWriteTimeout(kfg);
+            mgr -> conn_timeout = MAX_CONN_LIMIT;
+            mgr -> conn_read_timeout = MAX_CONN_READ_LIMIT;
+            mgr -> conn_write_timeout = MAX_CONN_WRITE_LIMIT;
             mgr -> http_read_timeout = KNSManagerPrepareHttpReadTimeout(kfg);
-            mgr -> http_write_timeout = KNSManagerPrepareHttpWriteTimeout(kfg);
+            mgr -> http_write_timeout = MAX_HTTP_WRITE_LIMIT;
             mgr -> maxTotalWaitForReliableURLs_ms = 10 * 60 * 1000; /* 10 min */
             mgr -> maxNumberOfRetriesOnFailureForReliableURLs = 10;
 
-/*          mgr->logTlsErrors = KNSManagerPrepareLogTlsErrors(kfg);
-            mgr->emulateTlsReadErrors
-                = KNSManagerPrepareEmulateTldReadErrors(kfg); */
+            mgr->logTlsErrors = KNSManagerPrepareLogTlsErrors(kfg);
 
             mgr->resolveToCache = KNSManagerPrepareResolveToCache(kfg);
 
@@ -763,14 +710,6 @@ LIB_EXPORT rc_t CC KNSManagerMakeConfig ( KNSManager **mgrp, KConfig* kfg )
                         KNSManagerSetNCBI_VDB_NET ( mgr, kfg );
 
                         * mgrp = mgr;
-
-/*
-printf("KNSManager.conn_timeout(%d) = %d\n", MAX_CONN_LIMIT, mgr->conn_timeout);
-printf("KNSManager.conn_read_timeout(%d) = %d\n", MAX_CONN_READ_LIMIT, mgr->conn_read_timeout);
-printf("KNSManager.conn_write_timeout(%d) = %d\n", MAX_CONN_WRITE_LIMIT, mgr->conn_write_timeout);
-printf("KNSManager.http_read_timeout(%d) = %d\n", MAX_HTTP_READ_LIMIT, mgr->http_read_timeout);
-printf("KNSManager.http_write_timeout(%d) = %d\n", MAX_HTTP_WRITE_LIMIT, mgr->http_write_timeout);
-*/
 
                         return 0;
                     }

@@ -167,7 +167,7 @@ VFS_EXTERN rc_t LegacyVPathMakeSysPath ( VPath ** new_path, const char * sys_pat
 typedef enum eVPUri_t
 {
     vpuri_invalid = -1,
-    vpuri_none, 
+    vpuri_none,
     vpuri_not_supported,
     vpuri_ncbi_file,
     vpuri_ncbi_vfs = vpuri_ncbi_file,
@@ -197,8 +197,7 @@ VPUri_t VPathGetUri_t (const VPath * self);
 rc_t VPathMakeFromUrl ( VPath ** new_path, const String * url,
     const String * tick, bool ext, const String * id, uint64_t osize,
     KTime_t date, const uint8_t md5 [ 16 ], KTime_t exp_date,
-    const char * service, const String * objectType,
-    bool ceRequired, bool payRequired );
+    const char * objectType );
 
 rc_t VPathAttachVdbcache(VPath * self, const VPath * vdbcache);
 

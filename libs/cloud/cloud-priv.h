@@ -1,4 +1,7 @@
-/*===========================================================================
+#ifndef _h_cloud_cloud_priv_
+#define _h_cloud_cloud_priv_
+
+/*=====================================================================================
 *
 *                            PUBLIC DOMAIN NOTICE
 *               National Center for Biotechnology Information
@@ -20,35 +23,53 @@
 *
 *  Please cite the author in any work or product based on this material.
 *
-* ===========================================================================
-*
-*/
+* ================================================================================== */
 
-#include <kapp/main.h>
-#include <klib/rc.h>
+#ifndef _h_cloud_cloud_
+#include <cloud/cloud.h>
+#endif
 
-#include <stdio.h>
-#include <sysexits.h>
+#ifndef _h_cloud_impl_
+#include <cloud/impl.h>
+#endif
 
-ver_t CC KAppVersion ( void )
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Force a provider for testing
+ */
+void CC CloudMgrSetProvider ( CloudMgr * mgr, CloudProviderId provider );
+
+/*--------------------------------------------------------------------------
+ * GCP
+ */
+struct GCP
 {
-    return 0x01020003;
-}
+    Cloud dad;
 
-rc_t CC UsageSummary ( const char *progname )
+    char * privateKey;
+    char * client_email;
+};
+
+/*--------------------------------------------------------------------------
+ * AWS
+ */
+struct AWS
 {
-    return 0;
+    Cloud dad;
+
+    char * profile;
+
+    char * access_key_id;
+    char * secret_access_key;
+
+    char * region;
+    char * output;
+};
+
+#ifdef __cplusplus
 }
+#endif
 
-rc_t CC Usage ( const Args *args )
-{
-    return 0;
-}
-
-
-rc_t CC KMain ( int argc, char *argv [] )
-{
-    rc_t rc = RC_EXITCODE(EX_TEMPFAIL);
-
-    return rc;
-}
+#endif /* _h_cloud_cloud_ */
