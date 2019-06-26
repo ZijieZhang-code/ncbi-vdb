@@ -71,7 +71,7 @@ struct KNSManager
     int32_t conn_write_timeout;
     int32_t http_read_timeout;
     int32_t http_write_timeout;
-    
+
     uint32_t maxTotalWaitForReliableURLs_ms;
 
     uint8_t  maxNumberOfRetriesOnFailureForReliableURLs;
@@ -87,10 +87,7 @@ struct KNSManager
     bool resolveToCache;
 
     /* VResolverCache ia allowed to resolve to user's cache vs. cwd/AD */
-    bool enabledResolveToAd; 
-
-    bool accept_aws_charges;
-    bool accept_gcp_charges;
+    bool enabledResolveToAd;
 
     bool NCBI_VDB_NETnoLogError;
     bool NCBI_VDB_NETkfgValueSet;

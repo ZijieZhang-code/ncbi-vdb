@@ -124,7 +124,7 @@ rc_t KNSManagerWhack ( KNSManager * self )
 
     if ( self -> aws_output != NULL )
         StringWhack ( self -> aws_output );
-    
+
     rc = HttpRetrySpecsDestroy ( & self -> retry_specs );
 
     KTLSGlobalsWhack ( & self -> tlsg );
@@ -207,7 +207,7 @@ void KNSManagerLoadAWS ( struct KNSManager *self, const KConfig * kfg )
                 if ( rc != 0 )
                     break;
             }
-        
+
             rc = KConfigNodeOpenNodeRead ( aws_node, &region_node, "region" );
             if ( rc == 0 )
             {
@@ -225,7 +225,7 @@ void KNSManagerLoadAWS ( struct KNSManager *self, const KConfig * kfg )
                 rc = KConfigNodeReadString ( output_node, &output );
 
                 KConfigNodeRelease ( output_node );
-                
+
                 if ( rc != 0 )
                     break;
             }
@@ -322,7 +322,7 @@ LIB_EXPORT bool KNSManagerIsVerbose ( const KNSManager *self )
  *
  *  "from" [ IN ] - client endpoint
  *
- *  "to" [ IN ] - server endpoint 
+ *  "to" [ IN ] - server endpoint
  *
  *  both endpoints have to be of type epIP; creates a TCP connection
  */
@@ -343,7 +343,7 @@ LIB_EXPORT rc_t CC KNSManagerMakeConnection ( const KNSManager * self,
 
     TimeoutInit ( & tm, self -> conn_timeout );
 
-    return KNSManagerMakeRetryTimedConnection ( self, conn, 
+    return KNSManagerMakeRetryTimedConnection ( self, conn,
         & tm, self -> conn_read_timeout, self -> conn_write_timeout, from, to );
 }
 /* MakeTimedConnection
@@ -352,7 +352,7 @@ LIB_EXPORT rc_t CC KNSManagerMakeConnection ( const KNSManager * self,
  *  "conn" [ OUT ] - a stream for communication with the server
  *
  *  "retryTimeout" [ IN ] - if connection is refused, retry with 1ms intervals: when negative, retry infinitely,
- *   when 0, do not retry, positive gives maximum wait time in seconds 
+ *   when 0, do not retry, positive gives maximum wait time in seconds
  *
  *  "readMillis" [ IN ] and "writeMillis" - when negative, infinite timeout
  *   when 0, return immediately, positive gives maximum wait time in mS
@@ -360,7 +360,7 @@ LIB_EXPORT rc_t CC KNSManagerMakeConnection ( const KNSManager * self,
  *
  *  "from" [ IN ] - client endpoint
  *
- *  "to" [ IN ] - server endpoint 
+ *  "to" [ IN ] - server endpoint
  *
  *  both endpoints have to be of type epIP; creates a TCP connection
  */
@@ -382,24 +382,24 @@ LIB_EXPORT rc_t CC KNSManagerMakeTimedConnection ( struct KNSManager const * sel
 
     TimeoutInit ( & tm, self -> conn_timeout );
 
-    return KNSManagerMakeRetryTimedConnection ( self, conn, 
+    return KNSManagerMakeRetryTimedConnection ( self, conn,
         & tm, readMillis, writeMillis, from, to );
-}    
-    
+}
+
 /* MakeRetryConnection
  *  create a connection-oriented stream
  *
  *  "conn" [ OUT ] - a stream for communication with the server
  *
  *  "retryTimeout" [ IN ] - if connection is refused, retry with 1ms intervals: when negative, retry infinitely,
- *   when 0, do not retry, positive gives maximum wait time in seconds 
+ *   when 0, do not retry, positive gives maximum wait time in seconds
  *
  *  "from" [ IN ] - client endpoint
  *
- *  "to" [ IN ] - server endpoint 
+ *  "to" [ IN ] - server endpoint
  *
  *  both endpoints have to be of type epIP; creates a TCP connection
- */    
+ */
 LIB_EXPORT rc_t CC KNSManagerMakeRetryConnection ( struct KNSManager const * self,
     struct KSocket ** conn, timeout_t * retryTimeout,
     struct KEndPoint const * from, struct KEndPoint const * to )
@@ -414,9 +414,9 @@ LIB_EXPORT rc_t CC KNSManagerMakeRetryConnection ( struct KNSManager const * sel
         return RC ( rcNS, rcStream, rcConstructing, rcSelf, rcNull );
     }
 
-    return KNSManagerMakeRetryTimedConnection ( self, conn, 
+    return KNSManagerMakeRetryTimedConnection ( self, conn,
         retryTimeout, self -> conn_read_timeout, self -> conn_write_timeout, from, to );
-}    
+}
 
 /* SetConnectionTimeouts
  *  sets default connect/read/write timeouts to supply to sockets
@@ -434,7 +434,7 @@ LIB_EXPORT rc_t CC KNSManagerSetConnectionTimeouts ( KNSManager *self,
     /* limit values */
     if ( connectMillis < 0 || connectMillis > MAX_CONN_LIMIT )
         connectMillis = MAX_CONN_LIMIT;
-        
+
     if ( readMillis < 0 || readMillis > MAX_CONN_READ_LIMIT )
         readMillis = MAX_CONN_READ_LIMIT;
 
@@ -588,7 +588,7 @@ static void KNSManagerSetNCBI_VDB_NET ( KNSManager * self, const KConfig * kfg )
 
     KConfigNodeRelease ( node );
     node = NULL;
-} 
+}
 
 
 static int32_t KNSManagerPrepareHttpReadTimeout(KConfig* kfg) {
@@ -636,28 +636,6 @@ static bool KNSManagerPrepareResolveToCache(KConfig* kfg) {
         return true;
 }
 
-static bool KNSManagerPrepareAcceptAwsCharges(KConfig* kfg) {
-    bool reslt = false;
-
-    /* TODO: call ncbi-vdb/interfaces/kfg/properties.h for exact key name */
-    rc_t rc = KConfigReadBool(kfg, "/libs/cloud/accept_aws_charges", &reslt);
-    if (rc == 0)
-        return reslt;
-    else
-        return false;
-}
-
-static bool KNSManagerPrepareAcceptGcpCharges(KConfig* kfg) {
-    bool reslt = false;
-
-    /* TODO: call ncbi-vdb/interfaces/kfg/properties.h for exact key name */
-    rc_t rc = KConfigReadBool(kfg, "/libs/cloud/accept_gcp_charges", &reslt);
-    if (rc == 0)
-        return reslt;
-    else
-        return false;
-}
-
 LIB_EXPORT rc_t CC KNSManagerMakeConfig ( KNSManager **mgrp, KConfig* kfg )
 {
     rc_t rc;
@@ -683,9 +661,6 @@ LIB_EXPORT rc_t CC KNSManagerMakeConfig ( KNSManager **mgrp, KConfig* kfg )
             mgr->logTlsErrors = KNSManagerPrepareLogTlsErrors(kfg);
 
             mgr->resolveToCache = KNSManagerPrepareResolveToCache(kfg);
-
-            mgr->accept_aws_charges = KNSManagerPrepareAcceptAwsCharges(kfg);
-            mgr->accept_gcp_charges = KNSManagerPrepareAcceptGcpCharges(kfg);
 
             rc = KNSManagerInit (); /* platform specific init in sysmgr.c ( in unix|win etc. subdir ) */
             if ( rc == 0 )
@@ -827,7 +802,7 @@ rc_t KNSManagerGetCloudLocation(const KNSManager * cself,
 
     if (self->cloud == NULL)
     {
-        rc = CloudMgrMake ( & self -> cloud, NULL, self );        
+        rc = CloudMgrMake ( & self -> cloud, NULL, self );
     }
 
     if (rc == 0) {

@@ -1269,7 +1269,6 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                         }
                                         KClientHttpRequestSetPayRequired ( req, self, payRequired );
 
-//KNSTODO: convert to GET if payment is required (out here or inside the call)
                                         rc = KClientHttpRequestHEAD ( req, & rslt );
                                         if ( rc == 0 && rslt -> expiration != NULL )
                                         {   /* retrieve and save the URL expiration time */
@@ -1322,6 +1321,7 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                                 switch ( status )
                                                 {
                                                 case 200:
+                                                case 206: /* can happen on the cloud if HEAD is simulated with a short GET */
                                                     if ( ! have_size )
                                                         rc = RC ( rcNS, rcFile, rcOpening, rcSize, rcUnknown );
                                                     else if ( ! accept_ranges )

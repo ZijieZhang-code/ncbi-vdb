@@ -2642,25 +2642,14 @@ struct KClientHttpRequest
     bool accept_not_modified;
 
     bool payRequired; /* required to access this URL */
-
-    /* user agrees to accept charges */
-    bool accept_aws_charges;
-    bool accept_gcp_charges;
 };
 
 void KClientHttpRequestSetPayRequired(struct KClientHttpRequest * self,
     const KNSManager *mgr, bool payRequired)
 {
-    if (self != NULL) {
+    if (self != NULL)
+    {
         self->payRequired = payRequired;
-
-        if (mgr == NULL && self->http != NULL)
-            mgr = self->http->mgr;
-
-        if (mgr != NULL) {
-            self->accept_aws_charges = mgr->accept_aws_charges;
-            self->accept_gcp_charges = mgr->accept_gcp_charges;
-        }
     }
 }
 
@@ -3898,8 +3887,48 @@ rc_t KClientHttpRequestSendReceiveNoBody ( KClientHttpRequest *self, KClientHttp
  */
 LIB_EXPORT rc_t CC KClientHttpRequestHEAD ( KClientHttpRequest *self, KClientHttpResult **rslt )
 {
-    // if payment is required, use GET for 256 bytes
-    return KClientHttpRequestSendReceiveNoBody ( self, rslt, "HEAD" );
+    /* if payment is required, use GET for 256 bytes */
+    if ( self -> payRequired )
+    {
+        const size_t HeadSize = 256;
+        uint64_t result_size64 = HeadSize;
+
+        /* update UserAgent with -head */
+        const char * user_agent;
+        rc_t rc = KNSManagerGetUserAgent ( & user_agent );
+        if ( rc == 0 )
+        {
+            KNSManagerSetUserAgent ( (KNSManager*)self->http->mgr, "%s-head", user_agent );
+
+            /* add Range Header 0..255 */
+            rc = KClientHttpRequestByteRange ( self, 0, 256 );
+            if ( rc == 0 )
+            {
+                rc = KClientHttpRequestSendReceiveNoBody ( self, rslt, "GET" );
+                if ( rc == 0 )
+                {
+                    KStream * response;
+                    char buf [ HeadSize ];
+
+                    /* extractSize */
+                    KClientHttpResultSize ( *rslt, & result_size64 );
+
+                    /* consume and discard Size bytes */
+                    rc = KClientHttpResultGetInputStream ( *rslt, & response );
+                    if ( rc == 0 )
+                    {
+                        rc = KStreamTimedReadExactly ( response, buf, result_size64, NULL );
+                        KStreamRelease ( response );
+                    }
+                }
+            }
+        }
+        return rc;
+    }
+    else
+    {
+        return KClientHttpRequestSendReceiveNoBody ( self, rslt, "HEAD" );
+    }
 }
 
 /* GET
