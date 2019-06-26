@@ -33,7 +33,6 @@ MODULE = test/kns
 TEST_TOOLS = \
 	test_allow_all_certificates \
 	test_dis_allow_all_certificates \
-	test-cloud \
 	test-google-proxy \
 	test200for-whole-file \
 	test-kns \
@@ -42,6 +41,8 @@ TEST_TOOLS = \
 	test-VDB-3661 \
 	test-connect \
 	test-refresh-expired
+
+#TODO: 	move test-cloud to test/cloud (if not already there)
 
 include $(TOP)/build/Makefile.env
 

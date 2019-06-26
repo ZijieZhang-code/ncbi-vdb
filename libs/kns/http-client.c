@@ -64,6 +64,8 @@ typedef struct KClientHttpStream KClientHttpStream;
 #include <klib/vector.h>
 #include <kproc/timeout.h>
 
+#include <cloud/manager.h>
+
 #include <strtol.h>
 #include <va_copy.h>
 
@@ -3134,6 +3136,90 @@ LIB_EXPORT rc_t CC KClientHttpRequestAddHeader ( KClientHttpRequest *self,
     return rc;
 }
 
+/* GetHeader
+ *  retrieve named header if present
+ *  this can potentially return a comma separated value list
+ */
+LIB_EXPORT rc_t CC KClientHttpRequestGetHeader(const KClientHttpRequest *self,
+    const char *name, char *buffer, size_t bsize, size_t *num_read)
+{
+    rc_t rc = 0;
+
+    if (num_read == NULL)
+        rc = RC(rcNS, rcNoTarg, rcValidating, rcParam, rcNull);
+    else
+    {
+        *num_read = 0;
+
+        if (self == NULL)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcSelf, rcNull);
+        else if (name == NULL)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcParam, rcNull);
+        else if (buffer == NULL && bsize != 0)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcParam, rcNull);
+        else
+        {
+            rc = KClientHttpFindHeader(&self->hdrs, name,
+                buffer, bsize, num_read);
+        }
+    }
+
+    return rc;
+}
+
+LIB_EXPORT rc_t CC KClientHttpRequestGetHost(const KClientHttpRequest *self,
+    char *buffer, size_t bsize, size_t *num_read)
+{
+    rc_t rc = 0;
+
+    if (num_read == NULL)
+        rc = RC(rcNS, rcNoTarg, rcValidating, rcParam, rcNull);
+    else
+    {
+        *num_read = 0;
+
+        if (self == NULL)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcSelf, rcNull);
+        else if (buffer == NULL && bsize != 0)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcParam, rcNull);
+        else if (bsize < self->url_block.host.size + 1)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcBuffer, rcInsufficient);
+        else {
+            string_copy(buffer, bsize,
+                self->url_block.host.addr, self->url_block.host.size);
+        }
+    }
+
+    return rc;
+}
+
+LIB_EXPORT rc_t CC KClientHttpRequestGetPath(const KClientHttpRequest *self,
+    char *buffer, size_t bsize, size_t *num_read)
+{
+    rc_t rc = 0;
+
+    if (num_read == NULL)
+        rc = RC(rcNS, rcNoTarg, rcValidating, rcParam, rcNull);
+    else
+    {
+        *num_read = 0;
+
+        if (self == NULL)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcSelf, rcNull);
+        else if (buffer == NULL && bsize != 0)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcParam, rcNull);
+        else if (bsize < self->url_block.path.size + 1)
+            rc = RC(rcNS, rcNoTarg, rcValidating, rcBuffer, rcInsufficient);
+        else {
+            string_copy(buffer, bsize,
+                self->url_block.path.addr, self->url_block.path.size);
+        }
+    }
+
+    return rc;
+}
+
+
 /* AddPostParam
  *  adds a parameter for POST
  */
@@ -3581,9 +3667,63 @@ static rc_t KClientHttpRequestFormatMsgBegin (
 }
 
 static
+rc_t
+FormatForCloud( const KClientHttpRequest *self, const char *method )
+{
+    rc_t rc = 0;
+
+    size_t skip = 0;
+    const String * hostname = & self->url_block.host;
+    CloudProviderId cpId = cloud_provider_none;
+
+    String stor31;
+    CONST_STRING(&stor31, "s3-stor31.st-va.ncbi.nlm.nih.gov");
+    skip = hostname->size - stor31.size;
+    if (hostname->size >= stor31.size &&
+        string_cmp(stor31.addr, stor31.size, hostname->addr + skip,
+            hostname->size - skip, stor31.size) == 0)
+    {
+        cpId = cloud_provider_aws;
+    }
+    else 
+    {
+        String amazonaws;
+        CONST_STRING(&amazonaws, "amazonaws.com");
+        skip = hostname->size - amazonaws.size;
+        if (hostname->size >= amazonaws.size &&
+            string_cmp(amazonaws.addr, amazonaws.size,
+                hostname->addr + skip, hostname->size - skip,
+                amazonaws.size) == 0)
+        {
+            cpId = cloud_provider_aws;
+        }
+    }    
+
+    /*TODO: GCP */
+
+    if ( cpId != cloud_provider_none )
+    {   /* add cloud authentication informantion if required */
+        CloudMgr * cloudMgr;
+        rc = CloudMgrMake ( & cloudMgr, NULL, NULL );     
+        if ( rc == 0 )   
+        {
+            /* create a cloud object based opn the target URL */
+            Cloud * cloud ;
+            rc = CloudMgrMakeCloud ( cloudMgr, & cloud, cpId );
+            if ( rc == 0 )
+            {
+                rc = CloudAddAuthentication ( cloud, (KClientHttpRequest *)self, method );
+                CloudRelease ( cloud );
+            }
+            CloudMgrRelease ( cloudMgr );
+        }
+    }
+    return rc;
+}
+
+static
 rc_t CC KClientHttpRequestFormatMsgInt( const KClientHttpRequest *self,
     char *buffer, size_t bsize, const char *method,
-    const char *AWSAccessKeyId, const char *YourSecretAccessKeyID,
     size_t *len, uint32_t uriForm )
 {
 //KNSTODO: the AWS authentication business does not belong here. Move to the new Cloud API
@@ -3611,12 +3751,13 @@ rc_t CC KClientHttpRequestFormatMsgInt( const KClientHttpRequest *self,
     }
 
     CONST_STRING ( &user_agent_string, "User-Agent" );
-    CONST_STRING(&accept_string, "Accept");
+    CONST_STRING ( &accept_string, "Accept" );
 
-#if OLD_AWS_CODE
-    rc = KClientHttpRequestAuthenticate(self, method,
-        AWSAccessKeyId, YourSecretAccessKeyID);
-#endif
+    rc = FormatForCloud ( self, method );
+    if ( rc != 0 )
+    {
+        return rc;
+    }
 
     /* start building the buffer that will be sent
        We are inlining the host:port, instead of
@@ -3712,7 +3853,7 @@ rc_t CC KClientHttpRequestFormatMsg(const KClientHttpRequest *self,
     char *buffer, size_t bsize, const char *method, size_t *len)
 {
     return KClientHttpRequestFormatMsgInt(self,
-        buffer, bsize, method, NULL, NULL, len, 1);
+        buffer, bsize, method, len, 1);
 }
 
 LIB_EXPORT
@@ -3720,21 +3861,11 @@ rc_t CC KClientHttpRequestFormatPostMsg(const KClientHttpRequest *self,
     char *buffer, size_t bsize, size_t *len)
 {
     return KClientHttpRequestFormatMsgInt(self,
-        buffer, bsize, "POST", NULL, NULL, len, 0);
-}
-
-LIB_EXPORT
-rc_t CC KClientHttpRequestFormatCloudMsg(const KClientHttpRequest *self,
-    char *buffer, size_t bsize, const char *method,
-    const char *AWSAccessKeyId, const char *YourSecretAccessKeyID,
-    size_t *len)
-{
-    return KClientHttpRequestFormatMsgInt(self, buffer, bsize,
-        method, AWSAccessKeyId, YourSecretAccessKeyID, len, 1);
+        buffer, bsize, "POST", len, 0);
 }
 
 static
-rc_t KClientHttpRequestHandleRedirection ( KClientHttpRequest *self, KClientHttpResult const *const rslt, char ** expiration )
+rc_t KClientHttpRequestHandleRedirection ( KClientHttpRequest *self, const char *method, KClientHttpResult const *const rslt, char ** expiration )
 {
     rc_t rc = 0;
     KHttpHeader *loc;
@@ -3807,7 +3938,10 @@ rc_t KClientHttpRequestHandleRedirection ( KClientHttpRequest *self, KClientHttp
                     KClientHttpRequestClear ( self );
                     rc = KClientHttpRequestInit ( self, &b, &uri );
                     if ( rc == 0 )
+                    {
+                        rc = FormatForCloud ( self, method );
                         KClientHttpResultRelease ( rslt );
+                    }
                 }
             }
 
@@ -3841,48 +3975,9 @@ rc_t KClientHttpRequestSendReceiveNoBodyInt ( KClientHttpRequest *self, KClientH
         size_t len;
         char buffer [ 4096 ];
 
-//KNSTODO: the AWS authentication business does not belong here. Move to the new Cloud API
-#if OLD_AWS_CODE
-        bool authenticate = false;
-
-        char aws_access_key_id[512] = "";
-        char aws_secret_access_key[512] = "";
-
-        const char *AWSAccessKeyId = NULL;
-        const char *YourSecretAccessKeyID = NULL;
-
-        authenticate = self->url_block.cloud_type == ct_S3;
-
-        if (authenticate) {
-            size_t num_read = 0;
-            KConfig * kfg = NULL;
-            rc = KConfigMake(&kfg, NULL);
-            if (rc != 0)
-                return rc;
-            rc = KConfigRead(kfg, "/AWS/aws_access_key_id", 0,
-                aws_access_key_id, sizeof aws_access_key_id, &num_read, NULL);
-            if (rc == 0)
-                rc = KConfigRead(kfg, "/AWS/aws_secret_access_key", 0,
-                    aws_secret_access_key, sizeof aws_secret_access_key,
-                    &num_read, NULL);
-            if (rc == 0) {
-                AWSAccessKeyId = aws_access_key_id;
-                YourSecretAccessKeyID = aws_secret_access_key;
-            }
-            else
-                rc = 0;
-            RELEASE(KConfig, kfg);
-        }
         /* create message */
         rc = KClientHttpRequestFormatMsgInt ( self, buffer, sizeof buffer,
-                method, AWSAccessKeyId, YourSecretAccessKeyID, & len, uriForm );
-#else
-        /* create message */
-        rc = KClientHttpRequestFormatMsgInt ( self, buffer, sizeof buffer,
-                method, NULL, NULL, & len, uriForm );
-
-#endif
-
+                method, & len, uriForm );
         if ( rc != 0 )
             break;
 
@@ -3956,7 +4051,7 @@ rc_t KClientHttpRequestSendReceiveNoBodyInt ( KClientHttpRequest *self, KClientH
             return 0;
         }
 
-        rc = KClientHttpRequestHandleRedirection ( self, rslt, & expiration );
+        rc = KClientHttpRequestHandleRedirection ( self, method, rslt, & expiration );
         if ( rc != 0 )
             break;
     }
@@ -4067,7 +4162,7 @@ rc_t CC KClientHttpRequestPOST_Int ( KClientHttpRequest *self, KClientHttpResult
 
         /* create message */
         rc = KClientHttpRequestFormatMsgInt ( self, buffer, sizeof buffer,
-                                           "POST", NULL, NULL, & len, 0 );
+                                           "POST", & len, 0 );
         if ( rc != 0 )
             break;
 
@@ -4139,7 +4234,7 @@ rc_t CC KClientHttpRequestPOST_Int ( KClientHttpRequest *self, KClientHttpResult
         }
 
         /* reset connection, reset request */
-        rc = KClientHttpRequestHandleRedirection ( self, rslt, NULL );
+        rc = KClientHttpRequestHandleRedirection ( self, "POST", rslt, NULL );
         if ( rc != 0 )
             break;
     }

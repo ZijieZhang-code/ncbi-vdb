@@ -37,6 +37,8 @@
 #include <kns/socket.h>
 #include <kns/http.h>
 
+#include <cloud/manager.h>
+
 #include <atomic.h> /* atomic_ptr_t */
 #include <sysalloc.h>
 
@@ -45,7 +47,6 @@
 #include <stdio.h> /* fprintf */
 
 #include "../klib/release-vers.h"
-#include "cloud.h" /* KNSManagerMakeCloud */
 #include "http-priv.h"
 #include "kns_manager-singleton.h" /* USE_SINGLETON */
 #include "mgr-priv.h"
@@ -110,7 +111,7 @@ rc_t KNSManagerWhack ( KNSManager * self )
 #endif
 
     KNSProxiesWhack ( self -> proxies );
-    CloudReleaseOld(self->cloud);
+    CloudMgrRelease ( self -> cloud );
 
     if ( self -> aws_access_key_id != NULL )
         StringWhack ( self -> aws_access_key_id );
@@ -825,7 +826,9 @@ rc_t KNSManagerGetCloudLocation(const KNSManager * cself,
         return RC(rcNS, rcMgr, rcAccessing, rcParam, rcNull);
 
     if (self->cloud == NULL)
-        rc = KNSManagerMakeCloud(self, &self->cloud);
+    {
+        rc = CloudMgrMake ( & self -> cloud, NULL, self );        
+    }
 
     if (rc == 0) {
         const char * location = NULL;
@@ -836,9 +839,9 @@ rc_t KNSManagerGetCloudLocation(const KNSManager * cself,
             num_read = &dummy;
         if (remaining == NULL)
             remaining = &dummy;
-
         assert(self->cloud);
-        location = CloudGetLocation(self->cloud);
+
+assert(false); //location = CloudGetLocation(self->cloud);
 
         if (location == NULL) {
             if (bsize > 0)

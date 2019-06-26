@@ -1,4 +1,7 @@
-/*===========================================================================
+#ifndef _h_cloud_cloud_priv_
+#define _h_cloud_cloud_priv_
+
+/*=====================================================================================
 *
 *                            PUBLIC DOMAIN NOTICE
 *               National Center for Biotechnology Information
@@ -20,48 +23,35 @@
 *
 *  Please cite the author in any work or product based on this material.
 *
-* ===========================================================================
-*
-*/
+* ================================================================================== */
 
 
-#ifndef _h_kns_http_priv_
-#define _h_kns_http_priv_
-
-
-#ifndef _h_klib_defs_
-#include <klib/defs.h> /* rc_t */
+#ifndef _h_cloud_extern_
+#include <cloud/extern.h>
 #endif
 
-#ifndef _h_kns_extern_
-#include <kns/extern.h> /* KNS_EXTERN */
+#ifndef _h_cloud_manager_
+#include <cloud/manager.h>
 #endif
-
-
-struct KClientHttpResult;
-
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/* forwards
+ */
 
-KNS_EXTERN rc_t CC KClientHttpRequestFormatMsg (
-    const struct KClientHttpRequest * self, char * buffer,
-    size_t bsize, const char * method, size_t * len );
+#if _DEBUGGING
+/* CloudMgrMakeWithProvider
+ *  Create a non-singleton, object to access cloud-related resources, with a set provider
+ */
+CLOUD_EXTERN rc_t CC CloudMgrMakeWithProvider ( CloudMgr ** mgrp, CloudProviderId provider );
 
-KNS_EXTERN rc_t CC KClientHttpRequestFormatPostMsg(
-    const struct KClientHttpRequest * self, char * buffer,
-    size_t bsize, size_t * len);
-
-KNS_EXTERN rc_t CC KClientHttpResultFormatMsg (
-    const struct KClientHttpResult * self, char * buffer,
-    size_t bsize, size_t * len, const char * bol, const char * eol );
-
+CLOUD_EXTERN void CC CloudMgrSetProvider ( CloudMgr * self, CloudProviderId provider );
+#endif
 
 #ifdef __cplusplus
 }
 #endif
 
-
-#endif /* _h_kns_http_priv_ */
+#endif /* _h_cloud_cloud_priv_ */

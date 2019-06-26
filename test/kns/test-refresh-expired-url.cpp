@@ -158,7 +158,8 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_Token_NoPayer, CloudFi
     // make sure there is no payer info added to the redirect URL
     REQUIRE ( ! HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer" ) );
 }
-
+#endif
+#if 0
 FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NoToken_AWS_Payer, CloudFixture )
 {
     //TestEnv::verbosity = LogLevel::e_message;
@@ -193,7 +194,6 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NoToken_AWS_Payer, Clo
     REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer: requester" ) );
 }
 #endif
-
 #if NOT_IMPLEMENTED
 FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_Token_AwsPayer, CloudFixture )
 {

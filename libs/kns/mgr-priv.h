@@ -51,6 +51,7 @@ struct String;
 struct KConfig;
 struct HttpRetrySpecs;
 struct KNSProxies;
+struct CloudMgr;
 
 struct KNSManager
 {
@@ -77,7 +78,7 @@ struct KNSManager
 
     struct KNSProxies * proxies;
 
-    const struct Cloud * cloud;
+    struct CloudMgr * cloud;
 
     bool verbose;
     bool logTlsErrors;
