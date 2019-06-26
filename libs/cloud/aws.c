@@ -47,7 +47,7 @@ struct AWS;
 
 #include <assert.h>
 
-#include "aws-priv.h" /* AWSAddAuthenticationImpl */
+#include "aws-priv.h" /* AWSDoAuthentication */
 #include "cloud-priv.h"
 
 static rc_t PopulateCredentials ( AWS * self );
@@ -72,7 +72,43 @@ rc_t CC AWSDestroy ( AWS * self )
 static
 rc_t CC AWSMakeComputeEnvironmentToken ( const AWS * self, const String ** ce_token )
 {
-    return 0; //TODO
+    rc_t rc = 0;
+
+    char document[4096] = "";
+    char pkcs7[4096] = "";
+
+    char locality[4096] = "";
+
+    assert(self && self->dad.mgr);
+    rc = KNSManager_Read(self->dad.mgr->kns, document, sizeof document,
+        "http://169.254.169.254/latest/dynamic/instance-identity/document");
+
+    if (rc == 0)
+        rc = KNSManager_Read(self->dad.mgr->kns, pkcs7, sizeof pkcs7,
+            "http://169.254.169.254/latest/dynamic/instance-identity/pkcs7");
+
+    if (rc == 0)
+        rc = MakeLocality(pkcs7, document, locality, sizeof locality);
+
+    if (rc == 0) {
+        uint32_t len = string_measure(locality, NULL) + 1;
+        String * s = calloc(1, sizeof * s + len);
+        if (s == NULL)
+            rc = RC(rcCloud, rcMgr, rcAccessing, rcMemory, rcExhausted);
+        else {
+            char * p = NULL;
+            assert(s && len);
+            p = (char *)s + sizeof * s;
+            rc = string_printf(p, len, NULL, "%s", locality);
+            if (rc == 0) {
+                StringInit(s, p, len, len);
+                assert(ce_token);
+                *ce_token = s;
+            }
+        }
+    }
+
+    return rc;
 }
 
 /* AddComputeEnvironmentTokenForSigner
@@ -91,8 +127,7 @@ rc_t CC AWSAddComputeEnvironmentTokenForSigner ( const AWS * self, KClientHttpRe
 static rc_t CC AWSAddAuthentication ( const AWS * self,
     KClientHttpRequest * req, const char * http_method )
 {
-    return AWSDoAuthentication(self, req, http_method,
-        self->access_key_id, self->secret_access_key, false);
+    return AWSDoAuthentication(self, req, http_method, false);
 }
 
 /* AddUserPaysCredentials
@@ -104,8 +139,7 @@ rc_t CC AWSAddUserPaysCredentials ( const AWS * self, KClientHttpRequest * req, 
     assert(self);
 
     if (self->dad.user_agrees_to_pay)
-        return AWSDoAuthentication(self, req, http_method,
-            self->access_key_id, self->secret_access_key, true);
+        return AWSDoAuthentication(self, req, http_method, true);
     else
         return 0;
 }
@@ -132,14 +166,14 @@ LIB_EXPORT rc_t CC CloudMgrMakeAWS ( const CloudMgr * self, AWS ** p_aws )
     AWS * aws = calloc ( 1, sizeof * aws );
     if ( aws == NULL )
     {
-        rc = RC ( rcNS, rcMgr, rcAllocating, rcMemory, rcExhausted );
+        rc = RC ( rcCloud, rcMgr, rcAllocating, rcMemory, rcExhausted );
     }
     else
     {
         /* capture from self->kfg */
         bool user_agrees_to_pay = false;
         
-        rc = CloudInit ( & aws -> dad, ( const Cloud_vt * ) & AWS_vt_v1, "AWS", user_agrees_to_pay );
+        rc = CloudInit ( & aws -> dad, ( const Cloud_vt * ) & AWS_vt_v1, "AWS", self, user_agrees_to_pay );
         if ( rc == 0 )
         {
             rc = PopulateCredentials( aws );

@@ -32,11 +32,15 @@
 #include <klib/printf.h> /* string_printf */
 
 #include <kns/http.h> /* KClientHttpRequest */
+#include <kns/stream.h> /* KStreamRelease */
 
 #include <ext/mbedtls/base64.h> /* vdb_mbedtls_base64_encode */
 #include <ext/mbedtls/md.h> /* vdb_mbedtls_md_hmac */
 
 #include "aws-priv.h" /* KClientHttpRequest_AddAuthentication */
+
+#define RELEASE(type, obj) do { rc_t rc2 = type##Release(obj); \
+    if (rc2 && !rc) { rc = rc2; } obj = NULL; } while (false)
 
 /* use mbedtls to generate HMAC_SHA1 */
 static rc_t HMAC_SHA1(
@@ -240,8 +244,7 @@ static rc_t StringToSign(
  *  prepare a request object with credentials for authentication
  */
 rc_t AWSDoAuthentication(const struct AWS * self, KClientHttpRequest * req,
-    const char * http_method, const char * AWSAccessKeyId,
-    const char * YourSecretAccessKeyID, bool requester_payer)
+    const char * http_method, bool requester_payer)
 {
     rc_t rc = 0;
 
@@ -305,7 +308,8 @@ rc_t AWSDoAuthentication(const struct AWS * self, KClientHttpRequest * req,
     }
 
     if (rc == 0)
-        rc = MakeAwsAuthenticationHeader(AWSAccessKeyId, YourSecretAccessKeyID,
+        rc = MakeAwsAuthenticationHeader(
+            self->access_key_id, self->secret_access_key,
             stringToSign, authorization, sizeof authorization);
 
     if (rc == 0)
@@ -333,4 +337,57 @@ rc_t Base64InIdentityDocument(const char *src, char *dst, size_t dlen) {
 rc_t WrapInIdentityPkcs7(const char *src, char *dst, size_t dlen) {
     return string_printf(dst, dlen, NULL,
         "-----BEGIN PKCS7-----\n%s\n-----END PKCS7-----\n", src);
+}
+
+rc_t Base64InIdentityPkcs7(const char *src, char *dst, size_t dlen) {
+    char wrapped[4096] = "";
+    rc_t rc = WrapInIdentityPkcs7(src, wrapped, sizeof wrapped);
+    if (rc == 0) {
+        size_t slen = string_measure(wrapped, NULL);
+        rc = Base64((unsigned char *)wrapped, slen, dst, dlen);
+    }
+    return rc;
+}
+
+rc_t MakeLocality(const char *pkcs7, const char *document,
+    char *dst, size_t dlen)
+{
+    char bpkcs7[4096] = "";
+    rc_t rc = Base64InIdentityPkcs7(pkcs7, bpkcs7, sizeof bpkcs7);
+    if (rc == 0) {
+        char documnt[4096] = "";
+        rc = Base64InIdentityDocument(document, documnt, sizeof documnt);
+        if (rc == 0)
+            rc = string_printf(dst, dlen, NULL, "%s.%s", bpkcs7, documnt);
+    }
+    return rc;
+}
+
+rc_t KNSManager_Read(const KNSManager *self, char *buffer, size_t bsize,
+    const char *url)
+{
+    rc_t rc = 0;
+    KClientHttpRequest *req = NULL;
+    rc = KNSManagerMakeClientRequest(self, &req, 0x01010000, NULL, url);
+    if (rc == 0) {
+        KClientHttpResult * rslt = NULL;
+        rc = KClientHttpRequestGET(req, &rslt);
+        if (rc == 0) {
+            KStream * s = NULL;
+            rc = KClientHttpResultGetInputStream(rslt, &s);
+            if (rc == 0) {
+                size_t num_read = 0;
+                rc = KStreamRead(s, buffer, bsize, &num_read);
+                if (rc == 0) {
+                    if (num_read < bsize)
+                        --num_read;
+                    buffer[num_read++] = '\0';
+                }
+            }
+            RELEASE(KStream, s);
+        }
+        RELEASE(KClientHttpResult, rslt);
+    }
+    RELEASE(KClientHttpRequest, req);
+    return rc;
 }

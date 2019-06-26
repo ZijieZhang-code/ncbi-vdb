@@ -37,8 +37,10 @@ struct KClientHttpRequest;
 
 rc_t AWSDoAuthentication(const struct AWS * self,
     struct KClientHttpRequest * req, const char * http_method,
-    const char * AWSAccessKeyId, const char * YourSecretAccessKeyID,
     bool requester_payer);
+
+rc_t KNSManager_Read(const struct KNSManager *self, char *buffer, size_t bsize,
+    const char *url);
 
 /* exposed private functions for unit testing */
 
@@ -50,6 +52,9 @@ rc_t MakeAwsAuthenticationHeader(
 
 rc_t Base64InIdentityDocument(const char *src, char *dst, size_t dlen);
 rc_t WrapInIdentityPkcs7(const char *src, char *dst, size_t dlen);
+rc_t Base64InIdentityPkcs7(const char *src, char *dst, size_t dlen);
+rc_t MakeLocality(const char *pkcs7, const char *document,
+    char *dst, size_t dlen);
 
 #ifdef __cplusplus
 }
