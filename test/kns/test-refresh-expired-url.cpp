@@ -80,7 +80,6 @@ public:
         TestStream::AddResponse( ostr.str() );
     }
 
-
     bool EnvironmentTokenPresent( const string & url )
     {
         return url.find("&ident=") != string::npos;
@@ -93,22 +92,18 @@ public:
     char m_buf[1024];
     size_t num_read;
     static constexpr const char * AwsUrl = "https://amazonaws.com/accession";
+    static constexpr const char * NonCloudUrl = "https://ncbi.nlm.nih.gov/accession";
 };
 
-extern "C" rc_t AddCloudStuff(  KClientHttpRequest *req )
-{
-    return 0;
-}
-
-FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NoTokenNoPayer, CloudFixture )
+FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NotCloud, CloudFixture )
 {
     //TestEnv::verbosity = LogLevel::e_message;
-    string url = MakeURL(GetName()).c_str();
+    string url = MakeURL(GetName());
 
     // simulates a 2-stage (redirect, real) response to a HEAD request from the "signer" service.
     // Pretend this is the object we need expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
     KTime_t expTime = KTimeStamp () + 65;
-    RespondWithRedirect ( AwsUrl, expTime );
+    RespondWithRedirect ( NonCloudUrl, expTime );
     RespondToHEAD ();
 
     // no environment token, no payRequired
@@ -119,55 +114,26 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NoTokenNoPayer, CloudF
 
     // make sure both original and redirection URLs and the expiration time are reflected on the HttpFile object
     REQUIRE_EQ ( url, string ( (const char*) httpFile . orig_url_buffer . base ) );
-    REQUIRE_EQ ( string ( AwsUrl ), string ( (const char*) httpFile . url_buffer . base ) );
+    REQUIRE_EQ ( string ( NonCloudUrl ), string ( (const char*) httpFile . url_buffer . base ) );
     REQUIRE ( httpFile . url_is_temporary );
     REQUIRE_EQ ( expTime, KTimeMakeTime ( & httpFile . url_expiration ) );
 
     // make sure there is no environment token added to the original URL
     REQUIRE ( ! EnvironmentTokenPresent ( TestStream::m_requests.front() ) );
-    // make sure there is no payer info added to the redirect URL
+    // make sure there are no cloud-related headers added to the redirect URL
+    REQUIRE ( ! HeaderPresent ( TestStream::m_requests.back(), "Authorization" ) );
+    REQUIRE ( ! HeaderPresent ( TestStream::m_requests.back(), "Date" ) );
     REQUIRE ( ! HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer" ) );
 }
 
-#if NOT_IMPLEMENTED
-FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_Token_NoPayer, CloudFixture )
+FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_AWS_NoToken_NoPayer, CloudFixture )
 {
     //TestEnv::verbosity = LogLevel::e_message;
-    string url = MakeURL(GetName()).c_str();
+    string url = MakeURL(GetName());
 
-    // simulates a 2-stage (redirect, real) response to a HEAD request from the "signer" service.
-    // Pretend this is the object we need expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
-    KTime_t expTime = KTimeStamp () + 65;
-    RespondWithRedirect ( AwsUrl, expTime );
-    RespondToHEAD ();
-
-    // environment token, no payRequired
-    REQUIRE_RC ( KNSManagerMakeReliableHttpFile( m_mgr, ( const KFile** ) &  m_file, & m_stream, 0x01010000, true, true, false, url . c_str () ) );
-    REQUIRE_NOT_NULL ( m_file ) ;
-
-    const struct KHttpFile& httpFile = * reinterpret_cast < const struct KHttpFile* > ( m_file );
-
-    // make sure both original and redirection URLs and the expiration time are reflected on the HttpFile object
-    REQUIRE_EQ ( url, string ( (const char*) httpFile . orig_url_buffer . base ) );
-    REQUIRE_EQ ( string ( AwsUrl ), string ( (const char*) httpFile . url_buffer . base ) );
-    REQUIRE ( httpFile . url_is_temporary );
-    REQUIRE_EQ ( expTime, KTimeMakeTime ( & httpFile . url_expiration ) );
-
-    // make sure there is an environment token added to the original URL
-    REQUIRE ( EnvironmentTokenPresent ( TestStream::m_requests.front() ) );
-    // make sure there is no payer info added to the redirect URL
-    REQUIRE ( ! HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer" ) );
-}
-#endif
-#if 0
-FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NoToken_AWS_Payer, CloudFixture )
-{
-    //TestEnv::verbosity = LogLevel::e_message;
-    string url = MakeURL(GetName()).c_str();
-
-    m_mgr -> accept_aws_charges = true;
-    REQUIRE_RC ( KConfigWriteString( kfg, "/AWS/aws_access_key_id", "access_key_id" ) );
-    REQUIRE_RC ( KConfigWriteString( kfg, "/AWS/aws_secret_access_key", "secret_access_key" ) );
+    setenv ( "AWS_ACCESS_KEY_ID", "access_key_id", 1 );
+    setenv ( "AWS_SECRET_ACCESS_KEY", "secret_access_key", 1 );
+    m_mgr -> accept_aws_charges = false;
 
     // simulates a 2-stage (redirect, real) response to a HEAD request from the "signer" service.
     // Pretend this is the object we need expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
@@ -191,22 +157,25 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NoToken_AWS_Payer, Clo
 
     REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "Authorization: AWS access_key_id:" ) );
     REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "Date: " ) );
-    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer: requester" ) );
+    REQUIRE ( ! HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer: requester" ) );
 }
-#endif
+
 #if NOT_IMPLEMENTED
-FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_Token_AwsPayer, CloudFixture )
+
+FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_AWS_Token_NoPayer, CloudFixture )
 {
     //TestEnv::verbosity = LogLevel::e_message;
-    string url = MakeURL(GetName()).c_str();
+    string url = MakeURL(GetName());
 
-    REQUIRE_RC ( KConfigWriteBool( kfg, "/libs/cloud/accept_aws_charges", true );
+    setenv ( "AWS_ACCESS_KEY_ID", "access_key_id", 1 );
+    setenv ( "AWS_SECRET_ACCESS_KEY", "secret_access_key", 1 );
+    m_mgr -> accept_aws_charges = false;
 
     // simulates a 2-stage (redirect, real) response to a HEAD request from the "signer" service.
     // Pretend this is the object we need expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
     KTime_t expTime = KTimeStamp () + 65;
     RespondWithRedirect ( AwsUrl, expTime );
-    RespondToHEAD();
+    RespondToHEAD ();
 
     // environment token, no payRequired
     REQUIRE_RC ( KNSManagerMakeReliableHttpFile( m_mgr, ( const KFile** ) &  m_file, & m_stream, 0x01010000, true, true, false, url . c_str () ) );
@@ -219,15 +188,88 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_Token_AwsPayer, CloudF
     REQUIRE_EQ ( string ( AwsUrl ), string ( (const char*) httpFile . url_buffer . base ) );
     REQUIRE ( httpFile . url_is_temporary );
     REQUIRE_EQ ( expTime, KTimeMakeTime ( & httpFile . url_expiration ) );
+
+    // make sure there is an environment token added to the original URL
+    REQUIRE ( EnvironmentTokenPresent ( TestStream::m_requests.front() ) );
+    // make sure there is no payer info added to the redirect URL
+    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer" ) );
+}
+
+FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_AWS_NoToken_Payer, CloudFixture )
+{
+    //TestEnv::verbosity = LogLevel::e_message;
+    string url = MakeURL(GetName());
+
+    setenv ( "AWS_ACCESS_KEY_ID", "access_key_id", 1 );
+    setenv ( "AWS_SECRET_ACCESS_KEY", "secret_access_key", 1 );
+    m_mgr -> accept_aws_charges = true;
+
+    // simulates a 2-stage (redirect, real) response to a HEAD request from the "signer" service.
+    // Pretend this is the object we need expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
+    KTime_t expTime = KTimeStamp () + 65;
+    RespondWithRedirect ( AwsUrl, expTime );
+    RespondToHEAD();
+
+    // no environment token, payRequired
+    REQUIRE_RC ( KNSManagerMakeReliableHttpFile( m_mgr, ( const KFile** ) &  m_file, & m_stream, 0x01010000, true, false, true, url . c_str () ) );
+    REQUIRE_NOT_NULL ( m_file ) ;
+
+    const struct KHttpFile& httpFile = * reinterpret_cast < const struct KHttpFile* > ( m_file );
+
+    // make sure both original and redirection URLs and the expiration time are reflected on the HttpFile object
+    REQUIRE_EQ ( url, string ( (const char*) httpFile . orig_url_buffer . base ) );
+    REQUIRE_EQ ( string ( AwsUrl ), string ( (const char*) httpFile . url_buffer . base ) );
+    REQUIRE ( httpFile . url_is_temporary );
+    REQUIRE_EQ ( expTime, KTimeMakeTime ( & httpFile . url_expiration ) );
+
+    // make sure there is no environment token added to the original URL
+    REQUIRE ( ! EnvironmentTokenPresent ( TestStream::m_requests.front() ) );
+    // make sure there is authorization and payer info added to the redirect URL
+    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "Authorization: AWS access_key_id:" ) );
+    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "Date: " ) );
+    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer" ) );
+}
+
+FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_AWS_Token_Payer, CloudFixture )
+{
+    //TestEnv::verbosity = LogLevel::e_message;
+    string url = MakeURL(GetName());
+
+    setenv ( "AWS_ACCESS_KEY_ID", "access_key_id", 1 );
+    setenv ( "AWS_SECRET_ACCESS_KEY", "secret_access_key", 1 );
+    m_mgr -> accept_aws_charges = true;
+
+    // simulates a 2-stage (redirect, real) response to a HEAD request from the "signer" service.
+    // Pretend this is the object we need expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
+    KTime_t expTime = KTimeStamp () + 65;
+    RespondWithRedirect ( AwsUrl, expTime );
+    RespondToHEAD();
+
+    // environment token, payRequired
+    REQUIRE_RC ( KNSManagerMakeReliableHttpFile( m_mgr, ( const KFile** ) &  m_file, & m_stream, 0x01010000, true, true, true, url . c_str () ) );
+    REQUIRE_NOT_NULL ( m_file ) ;
+
+    const struct KHttpFile& httpFile = * reinterpret_cast < const struct KHttpFile* > ( m_file );
+
+    // make sure both original and redirection URLs and the expiration time are reflected on the HttpFile object
+    REQUIRE_EQ ( url, string ( (const char*) httpFile . orig_url_buffer . base ) );
+    REQUIRE_EQ ( string ( AwsUrl ), string ( (const char*) httpFile . url_buffer . base ) );
+    REQUIRE ( httpFile . url_is_temporary );
+    REQUIRE_EQ ( expTime, KTimeMakeTime ( & httpFile . url_expiration ) );
+
+    // make sure there is environment token added to the original URL
+    REQUIRE ( EnvironmentTokenPresent ( TestStream::m_requests.front() ) );
+    // make sure there is authorization and payer info added to the redirect URL
+    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "Authorization: AWS access_key_id:" ) );
+    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "Date: " ) );
+    REQUIRE ( HeaderPresent ( TestStream::m_requests.back(), "x-amz-request-payer" ) );
 }
 #endif
 
-#if 0
-
-FIXTURE_TEST_CASE( HttpRefreshTestSuite_UntimedRead, CloudFixture )
+FIXTURE_TEST_CASE( HttpRefreshTestSuite_ReadCloseToExpiration, CloudFixture )
 {
     //TestEnv::verbosity = LogLevel::e_message;
-    string url = MakeURL(GetName()).c_str();
+    string url = MakeURL(GetName());
 
     // simulates a 2-stage (redirect, real) response to HEAD from "signer" service. Pretend this is the object we need
     // expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
@@ -251,72 +293,32 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_UntimedRead, CloudFixture )
     REQUIRE_RC( KFileTimedRead ( m_file, 0, m_buf, sizeof m_buf, & num_read, NULL ) );
 
     // wait 6s to cross the refresh threshold, read again, see the URL refreshed and the expiration updated
-    cout << "Sleeping" << endl;
+    cout << "Sleep 6 sec" << endl;
     KSleep(6);
 
     // another simulated response from the "signer" service. The URL is now different, with new expiration
     KTime_t newExpTime = KTimeStamp () + 65;
-    RespondWithRedirect ( "https://ELSEWHERE.in.the.cloud/accession", newExpTime );
+    string newAwsHost = "ELSEWHERE.in.the.cloud";
+    RespondWithRedirect ( MakeURL( newAwsHost ), newExpTime );
     RespondToHEAD();
 
-    // KFileTimedRead without a timeout
     // this Read will notice that the expiration time is nigh, use the original URL and get redirected to the "signer" for a new temporary URL
     RespondToGET();
     REQUIRE_RC( KFileTimedRead ( m_file, 0, m_buf, sizeof m_buf, & num_read, NULL ) );
     REQUIRE_EQ ( newExpTime, KTimeMakeTime ( & httpFile . url_expiration ) );
+    // verify that the second to last request was done on the original URL
+    REQUIRE_NE ( string::npos, ( ++ TestStream::m_requests . rbegin() ) -> find( GetName() ) );
+    // verify that the last request was done on the new redirected URL
+    REQUIRE_NE ( string::npos, TestStream::m_requests . back() . find( newAwsHost ) );
 
     // the next Read (right away) will not refresh the URL or expiration
     RespondToGET();
     REQUIRE_RC( KFileTimedRead ( m_file, 0, m_buf, sizeof m_buf, & num_read, NULL ) );
     REQUIRE_EQ ( newExpTime, KTimeMakeTime ( & httpFile . url_expiration ) ); // expiration did not change
+    // verify that the last request was done on the same redirected URL
+    REQUIRE_NE ( string::npos, TestStream::m_requests . back() . find( newAwsHost ) );
 }
 
-FIXTURE_TEST_CASE( HttpRefreshTestSuite_TimedRead, CloudFixture )
-{
-    //TestEnv::verbosity = LogLevel::e_message;
-    string url = MakeURL(GetName()).c_str();
-
-    // simulates a 2-stage (redirect, real) response to HEAD from "signer" service. Pretend this is the object we need
-    // expiring 65 seconds in the future; the refresh timer will be set to 60 seconds before that
-    KTime_t expTime = KTimeStamp () + 65;
-    RespondWithRedirect ( AwsUrl, expTime );
-    RespondToHEAD();
-
-    // needs an environment token, no requester-pays
-    REQUIRE_RC ( KNSManagerMakeReliableHttpFile( m_mgr, ( const KFile** ) &  m_file, & m_stream, 0x01010000, true, false, url . c_str () ) );
-    REQUIRE_NOT_NULL ( m_file ) ;
-
-    // make sure expiration time is reflected on the HttpFile object
-    REQUIRE_EQ ( expTime, KTimeMakeTime ( & ( (const struct KHttpFile*)m_file ) -> url_expiration ) );
-
-    // use GET to read a portion of the file
-    RespondToGET();
-    REQUIRE_RC( KFileTimedRead ( m_file, 0, m_buf, sizeof m_buf, & num_read, NULL ) );
-
-    // wait 6s to cross the refresh threshold, read again, see the URL refreshed and the expiration updated
-    cout << "Sleeping" << endl;
-    KSleep(6);
-
-    // another simulated response from the "signer" service. The URL is now different, with new expiration
-    KTime_t newExpTime = KTimeStamp () + 65;
-    RespondWithRedirect ( "https://ELSEWHERE.in.the.cloud/accession", newExpTime );
-    RespondToHEAD();
-
-    // KFileTimedRead with a timeout
-    RespondToGET();
-    // this Read will notice that the timeout may happen after the URL expiration time - 1 min, and call the "signer" for a new temporary URL
-    timeout_t tm;
-    TimeoutInit ( & tm, 6 * 1000 /*6 seconds in milliseconds*/ );
-    // rely on KNS to Prepare the timer
-    REQUIRE_RC ( KFileTimedRead ( m_file, 0, m_buf, sizeof m_buf, & num_read, & tm ) );
-    REQUIRE_EQ ( newExpTime, KTimeMakeTime ( & ( (const struct KHttpFile*)m_file ) -> url_expiration ) );
-
-    // the next Read (right away) will not refresh the URL
-    RespondToGET();
-    REQUIRE_RC( KFileTimedRead ( m_file, 0, m_buf, sizeof m_buf, & num_read, NULL ) );
-    REQUIRE_EQ ( newExpTime, KTimeMakeTime ( & ( (const struct KHttpFile*)m_file ) -> url_expiration ) ); // expiration did not change
-}
-#endif
 //////////////////////////////////////////// Main
 
 #include <kapp/args.h> // Args
@@ -342,7 +344,7 @@ extern "C" {
         KConfigDisableUserSettings ();
 
         rc_t rc = KConfigMakeEmpty ( & kfg );
-     // turn off certificate validation to download from storage.googleapis.com
+        // turn off certificate validation to download from storage.googleapis.com
         if ( rc == 0 )
             rc = KConfigWriteString ( kfg, "/tls/allow-all-certs", "true" );
 

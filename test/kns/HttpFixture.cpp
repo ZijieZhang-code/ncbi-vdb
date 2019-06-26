@@ -202,7 +202,7 @@ HttpFixture :: Reconnect ()
 }
 
 string
-HttpFixture :: MakeURL(const char* base)
+HttpFixture :: MakeURL(const string & base)
 {
     return string("http://") + base + ".com/";
 }

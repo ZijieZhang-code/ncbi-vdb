@@ -62,7 +62,7 @@ public:
 
     static struct KStream * Reconnect ();
 
-    static std :: string MakeURL(const char* base);
+    static std :: string MakeURL(const std :: string & base);
 
     struct KNSManager* m_mgr;
     static KStream m_stream;

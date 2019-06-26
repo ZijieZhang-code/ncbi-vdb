@@ -2664,9 +2664,28 @@ void KClientHttpRequestSetPayRequired(struct KClientHttpRequest * self,
     }
 }
 
+rc_t
+KClientHttpRequestAttachEnvironmentToken( KClientHttpRequest * self )
+{
+    CloudMgr * cloudMgr;
+    rc_t rc = CloudMgrMake ( & cloudMgr, NULL, NULL );
+    if ( rc == 0 )
+    {
+        Cloud * cloud;
+        rc = CloudMgrGetCurrentCloud ( cloudMgr, & cloud );
+        if ( rc == 0 )
+        {
+            rc = CloudAddComputeEnvironmentTokenForSigner ( cloud, self );
+            CloudRelease ( cloud );
+        }
+        CloudMgrRelease ( cloudMgr );
+    }
+    return rc;
+}
 
 rc_t KClientHttpRequestURL(KClientHttpRequest const *self, KDataBuffer *rslt)
 {
+    KDataBufferWhack ( rslt );
     return KDataBufferSub(&self->url_buffer, rslt, 0, self->url_buffer.elem_count);
 }
 
@@ -3359,227 +3378,6 @@ static EUriForm EUriFormGuess ( const String * hostname,
     }
 }
 
-#if OLD_AWS_CODE
-//KNSTODO: the AWS authentication business does not belong here. Move this whole function to the new Cloud API
-
-#define X_AMZ_REQUEST_PAYER "x-amz-request-payer"
-#define REQUESTER "requester"
-
-/* https://docs.aws.amazon.com/AmazonS3/latest/dev/RESTAuthentication.html */
-static rc_t StringToSign(
-    const String * HTTPVerb,
-    const String * Date,
-    const String * hostname,
-    const String * HTTPRequestURI,
-    bool requester_payer,
-    char * buffer, size_t bsize, size_t * len)
-{
-    rc_t rc = 0;
-    rc_t r2 = 0;
-    size_t total = 0;
-    size_t skip = 0;
-    size_t p_bsize = 0;
-
-    String dateString;
-    String s3;
-    CONST_STRING(&s3, ".s3.amazonaws.com");
-    CONST_STRING(&dateString, "Date");
-    assert(buffer && len);
-
-    /* StringToSign = HTTP-Verb + "\n" */
-    assert(HTTPVerb);
-    rc = string_printf(buffer, bsize, len, "%S\n", HTTPVerb);
-    total += *len;
-
-    /* StringToSign += Content-MD5 + "\n" */
-    {
-        const char ContentMD5[] = "";
-        p_bsize = bsize >= total ? bsize - total : 0;
-        r2 = string_printf(&buffer[total], p_bsize, len, "%s\n", ContentMD5);
-        total += *len;
-        if (rc == 0 && r2 != 0)
-            rc = r2;
-    }
-
-    /* StringToSign += Content-Type + "\n" */
-    {
-        const char ContentType[] = "";
-        p_bsize = bsize >= total ? bsize - total : 0;
-        r2 = string_printf(&buffer[total], p_bsize, len, "%s\n", ContentType);
-        total += *len;
-        if (rc == 0 && r2 != 0)
-            rc = r2;
-    }
-
-    /* StringToSign += Date + "\n" */
-    assert(Date); /* Signed Amazon queries: Date header is required. */
-    p_bsize = bsize >= total ? bsize - total : 0;
-    r2 = string_printf(&buffer[total], p_bsize, len, "%S\n", Date);
-    total += *len;
-    if (rc == 0 && r2 != 0)
-        rc = r2;
-
-    /* StringToSign += CanonicalizedAmzHeaders */
-    if (requester_payer) {
-        p_bsize = bsize >= total ? bsize - total : 0;
-        r2 = string_printf(
-            &buffer[total], p_bsize, len, X_AMZ_REQUEST_PAYER ":" REQUESTER "\n");
-        total += *len;
-    }
-
-    /* StringToSign += CanonicalizedResource */
-    skip = hostname->size - s3.size;
-    if (skip > 0 && hostname->size >= s3.size &&
-        string_cmp(s3.addr, s3.size, hostname->addr + skip,
-            hostname->size - skip, s3.size) == 0)
-    { /* CanonicalizedResource = [ "/" + Bucket ] */
-        String Bucket;
-        StringInit(&Bucket, hostname->addr, skip, skip);
-        p_bsize = bsize >= total ? bsize - total : 0;
-        r2 = string_printf(&buffer[total], p_bsize, len, "/%S", &Bucket);
-        total += *len;
-        if (rc == 0 && r2 != 0)
-            rc = r2;
-    }
-    /* CanonicalizedResource += <HTTP-Request-URI protocol name to the query> */
-    p_bsize = bsize >= total ? bsize - total : 0;
-    assert(HTTPRequestURI);
-    r2 = string_printf(&buffer[total], p_bsize, len, "%S", HTTPRequestURI);
-    total += *len;
-    if (rc == 0 && r2 != 0)
-        rc = r2;
-
-    return rc;
-}
-
-/* N.B. Just AWS authentication is implemented now */
-static rc_t KClientHttpRequestAuthenticate(const KClientHttpRequest *cself,
-    const char *method,
-    const char *AWSAccessKeyId, const char *YourSecretAccessKeyID)
-{
-    rc_t rc = 0;
-    KClientHttpRequest *self = (KClientHttpRequest *)cself;
-    KClientHttp * http = NULL;
-    const String * hostname = NULL;
-    bool authenticate = false;
-    char stringToSign[4096] = "";
-    char authorization[4096] = "";
-    const String * sdate = NULL;
-    char date[64] = "";
-
-    String dates;
-
-    const char * magic = getenv(MAGIC_PAY_REQUIRED);
-    bool requester_payer = magic != NULL ? true : self->payRequired;
-
-    /* don't set requester_payer when user did not agree to accept charges */
-    if (requester_payer & !self->accept_aws_charges)
-        requester_payer = false;
-
-    assert(self && self->http);
-    http = self->http;
-    hostname = &self->url_block.host;
-    if (hostname->size == 0) {
-        hostname = &http->hostname;
-        if (hostname->size == 0)
-            return RC(rcNS, rcNoTarg, rcValidating, rcName, rcEmpty);
-    }
-
-    authenticate =
-        AWSAccessKeyId != NULL && YourSecretAccessKeyID != NULL;
-    if (authenticate) {
-        size_t skip = 0;
-        String stor31;
-        CONST_STRING(&stor31, "s3-stor31.st-va.ncbi.nlm.nih.gov");
-        skip = hostname->size - stor31.size;
-        if (hostname->size >= stor31.size &&
-            string_cmp(stor31.addr, stor31.size, hostname->addr + skip,
-                hostname->size - skip, stor31.size) == 0);
-        else {
-            String amazonaws;
-            CONST_STRING(&amazonaws, "amazonaws.com");
-            skip = hostname->size - amazonaws.size;
-            if (hostname->size >= amazonaws.size &&
-                string_cmp(amazonaws.addr, amazonaws.size,
-                    hostname->addr + skip, hostname->size - skip,
-                    amazonaws.size) == 0);
-            else
-                authenticate = false;
-        }
-    }
-
-    if (authenticate) {
-        rc_t rc = 0;
-        const KHttpHeader *node = NULL;
-
-        String dateString;
-        String authorizationString;
-        CONST_STRING(&dateString, "Date");
-        CONST_STRING(&authorizationString, "Authorization");
-
-        for (node = (const KHttpHeader*)BSTreeFirst(&self->hdrs);
-            (rc == 0 ||
-            (GetRCObject(rc) == (enum RCObject) rcBuffer &&
-                GetRCState(rc) == rcInsufficient)) && node != NULL;
-            node = (const KHttpHeader*)BSTNodeNext(&node->dad))
-        {
-            if (node->name.len == 4 &&
-                StringCaseCompare(&node->name, &dateString) == 0)
-            {
-                sdate = &node->value;
-            }
-            else if (node->name.len == 13 &&
-                StringCaseCompare(&node->name, &authorizationString) == 0)
-            {   /* already has Authorization header */
-                authenticate = false;
-            }
-        }
-
-        if (!authenticate)
-            return 0;
-
-        if (sdate == NULL) {
-            KTime_t t = KTimeStamp();
-
-#if _DEBUGGING
-            size_t sz =
-#endif
-                KTimeRfc2616(t, date, sizeof date);
-#if _DEBUGGING
-            assert(sz < sizeof date);
-#endif
-
-            StringInitCString(&dates, date);
-            sdate = &dates;
-            rc = KClientHttpRequestAddHeader(self, "Date", date);
-        }
-    }
-    else /* not connecting to s3 or AccessKeyId/SecretAccessKeyID are unknown */
-        return 0;
-
-    if (rc == 0) {
-        size_t len = 0;
-        String HTTPVerb;
-        StringInitCString(&HTTPVerb, method);
-        rc = StringToSign(&HTTPVerb, sdate, hostname, &self->url_block.path,
-            requester_payer, stringToSign, sizeof stringToSign, &len);
-    }
-
-    if (rc == 0)
-        rc = KNSManagerMakeAwsAuthenticationHeader(NULL,
-            AWSAccessKeyId, YourSecretAccessKeyID, stringToSign,
-            authorization, sizeof authorization);
-
-    if (rc == 0)
-        rc = KClientHttpAddHeader(&self->hdrs, "Authorization", authorization);
-
-    if (rc == 0 && requester_payer)
-        rc = KClientHttpAddHeader(&self->hdrs, X_AMZ_REQUEST_PAYER, REQUESTER);
-
-    return rc;
-}
-#endif
-
 static rc_t KClientHttpRequestFormatMsgBegin (
     const KClientHttpRequest * self, char * buffer, size_t bsize,
     const char * method, size_t * len, uint32_t uriForm )
@@ -3668,12 +3466,12 @@ static rc_t KClientHttpRequestFormatMsgBegin (
 
 static
 rc_t
-FormatForCloud( const KClientHttpRequest *self, const char *method )
+FormatForCloud( const KClientHttpRequest *cself, const char *method )
 {
     rc_t rc = 0;
 
     size_t skip = 0;
-    const String * hostname = & self->url_block.host;
+    const String * hostname = & cself->url_block.host;
     CloudProviderId cpId = cloud_provider_none;
 
     String stor31;
@@ -3685,7 +3483,7 @@ FormatForCloud( const KClientHttpRequest *self, const char *method )
     {
         cpId = cloud_provider_aws;
     }
-    else 
+    else
     {
         String amazonaws;
         CONST_STRING(&amazonaws, "amazonaws.com");
@@ -3697,22 +3495,23 @@ FormatForCloud( const KClientHttpRequest *self, const char *method )
         {
             cpId = cloud_provider_aws;
         }
-    }    
+    }
 
     /*TODO: GCP */
 
     if ( cpId != cloud_provider_none )
     {   /* add cloud authentication informantion if required */
         CloudMgr * cloudMgr;
-        rc = CloudMgrMake ( & cloudMgr, NULL, NULL );     
-        if ( rc == 0 )   
+        rc = CloudMgrMake ( & cloudMgr, NULL, NULL );
+        if ( rc == 0 )
         {
-            /* create a cloud object based opn the target URL */
+            /* create a cloud object based on the target URL */
             Cloud * cloud ;
+            KClientHttpRequest * self = (KClientHttpRequest *)cself;
             rc = CloudMgrMakeCloud ( cloudMgr, & cloud, cpId );
             if ( rc == 0 )
             {
-                rc = CloudAddAuthentication ( cloud, (KClientHttpRequest *)self, method );
+                rc = CloudAddAuthentication ( cloud, self, method );
                 CloudRelease ( cloud );
             }
             CloudMgrRelease ( cloudMgr );
@@ -3726,8 +3525,6 @@ rc_t CC KClientHttpRequestFormatMsgInt( const KClientHttpRequest *self,
     char *buffer, size_t bsize, const char *method,
     size_t *len, uint32_t uriForm )
 {
-//KNSTODO: the AWS authentication business does not belong here. Move to the new Cloud API
-
     rc_t rc;
     rc_t r2 = 0;
     bool have_user_agent = false;

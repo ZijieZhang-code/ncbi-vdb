@@ -140,6 +140,8 @@ rc_t KClientHttpRequestURL ( struct KClientHttpRequest const *self, KDataBuffer 
 void KClientHttpRequestSetPayRequired(struct KClientHttpRequest * self,
     const struct KNSManager * kns, bool payRequired);
 
+rc_t KClientHttpRequestAttachEnvironmentToken( struct KClientHttpRequest * self );
+
 /* exported private functions
 */
 

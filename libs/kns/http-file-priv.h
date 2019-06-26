@@ -57,21 +57,13 @@ struct KHttpFile
 
     KDataBuffer url_buffer;
 
-    bool url_is_temporary;
-    KTime url_expiration; /* if is_temporary == true, refresh url_buffer using orig_url_buffer, by this time */
+    bool url_is_temporary; /* The original request received a 307 Temp Redirect */
+    KTime url_expiration; /* if url_is_temporary == true, refresh url_buffer using orig_url_buffer */
 
-    /* if need_env_token == true: */
-    /* Create http client connected to orig_url_buffer. */
-    /* Call HEAD with a computing environment token attached */
-    /* The response will be a 307 Temp Redirect with Location and Expires headers */
-    /* Save the Location URL in url_buffer, Expires in url_expiration. */
-    /* Reopen the connection using url_buffer. */
-    /* Add "promise-to-pay" headers if payRequired == true. */
-    /* In all read functions, if the expiration time will have passed in 1 minute, refresh url_buffer first, */
-    /* using the same procedure (connect to orig_url_buffer/HEAD/307/save URL and expiration) */
-    bool need_env_token; //TODO: rename into "temporary_url", "cloud_url", or something
+    /* if true, add environment token to the URL */
+    bool need_env_token;
 
-    /* if true, add user-account info headers to each request */
+    /* if true, add user-account info headers to cloud URLs */
     bool payRequired;
 
     bool no_cache;
