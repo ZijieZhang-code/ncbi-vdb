@@ -271,8 +271,9 @@ FIXTURE_TEST_CASE(AWS_ToCloud, AwsFixture)
 
 FIXTURE_TEST_CASE(AWS_Credentials_Blank, AwsFixture)
 {
-    // block cloud discovery and home directory lookup to make sure the credentials are left blank
-    setenv ( "HOME", ".", 1 );
+    // block cloud discovery and home directory lookup
+    // to make sure the credentials are left blank
+    setenv("HOME", ".", 1);
 
     MakeAWS();
 
