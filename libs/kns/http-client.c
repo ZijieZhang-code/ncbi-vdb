@@ -2642,13 +2642,6 @@ struct KClientHttpRequest
     bool accept_not_modified;
 
     bool payRequired; /* required to access this URL */
-<<<<<<< HEAD
-=======
-
-    /* user agrees to accept charges */
-    bool accept_aws_charges;
-    bool accept_gcp_charges;
->>>>>>> cbe11b5e... merged from engineering
 };
 
 void KClientHttpRequestSetPayRequired(struct KClientHttpRequest * self,
