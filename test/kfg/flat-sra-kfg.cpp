@@ -86,7 +86,7 @@ public:
             compare ( remote, expectedShort );
             RELEASE ( VPath, remote );
             REQUIRE_RC ( KNSManagerMakeReliableHttpFile
-                ( kns, & f, NULL, 0x01010000, false, false, expectedShort . c_str () ) );
+                ( kns, & f, NULL, 0x01010000, true, false, false, expectedShort . c_str () ) );
             RELEASE ( KFile, f );
         } else {
             REQUIRE_RC_FAIL ( VResolverQuery
@@ -99,7 +99,7 @@ public:
             compare ( remote, expectedLong );
             RELEASE ( VPath, remote );
             REQUIRE_RC ( KNSManagerMakeReliableHttpFile
-                ( kns, & f, NULL, 0x01010000, false, false, expectedLong . c_str () ) );
+                ( kns, & f, NULL, 0x01010000, true, false, false, expectedLong . c_str () ) );
             RELEASE ( KFile, f );
         } else {
             REQUIRE_RC_FAIL ( VResolverQuery
@@ -309,7 +309,7 @@ if ((string(acc) != "AAAB01" || string(value) != "refseq")
         REQUIRE_EQ ( num_read, num_readC );
         const KFile * f = NULL;
         REQUIRE_RC
-            (KNSManagerMakeReliableHttpFile(kns, &f, NULL, 0x01010000, false, false, buffer));
+            (KNSManagerMakeReliableHttpFile(kns, &f, NULL, 0x01010000, true, false, false, buffer));
         RELEASE ( KFile, f );
         if ( string (acc) == "AAAB01.1"
           && expected && expected [ 0 ] && string ( expected ) != buffer)

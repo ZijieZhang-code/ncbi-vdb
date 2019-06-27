@@ -94,7 +94,7 @@ void CloudMgrDetermineCurrentCloud ( CloudMgr * self )
         return;
     }
 #endif
-    
+
     self -> cur_id = cloud_provider_none;
 }
 
@@ -118,7 +118,7 @@ LIB_EXPORT rc_t CC CloudMgrMake ( CloudMgr ** mgrp,
             if ( our_mgr != NULL )
             {
             singleton_exists:
-            
+
                 /* add a new reference and return */
                 rc = CloudMgrAddRef ( our_mgr );
                 if ( rc != 0 )
@@ -127,7 +127,7 @@ LIB_EXPORT rc_t CC CloudMgrMake ( CloudMgr ** mgrp,
                 * mgrp = our_mgr;
                 return rc;
             }
-        
+
             /* singleton was NULL. make from scratch. */
             our_mgr = calloc ( 1, sizeof * our_mgr );
             if ( our_mgr == NULL )
@@ -194,7 +194,7 @@ LIB_EXPORT rc_t CC CloudMgrMake ( CloudMgr ** mgrp,
                         }
                     }
                 }
-                    
+
                 CloudMgrWhack ( our_mgr );
             }
         }
@@ -219,16 +219,19 @@ LIB_EXPORT rc_t CC CloudMgrMakeWithProvider ( CloudMgr ** mgrp, CloudProviderId 
         KRefcountInit ( & self -> refcount, 1, "CloudMgr", "MakeWithProvider", "cloud" );
 
         self -> cur_id = provider;
-
-        rc = CloudMgrMakeCloud ( self, & self -> cur, provider );
+        rc = KNSManagerMake ( ( KNSManager ** ) & self -> kns );
         if ( rc == 0 )
         {
-            * mgrp = self;
-            return 0;
+            rc = CloudMgrMakeCloud ( self, & self -> cur, provider );
+            if ( rc == 0 )
+            {
+                * mgrp = self;
+                return 0;
+            }
         }
 
         CloudMgrWhack ( self );
-        * mgrp = NULL;   
+        * mgrp = NULL;
     }
     return rc;
 }

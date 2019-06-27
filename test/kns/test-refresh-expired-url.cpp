@@ -253,7 +253,7 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_AWS_Token_Payer, Cloud
     REQUIRE ( StringPresent ( redirReq, "x-amz-request-payer" ) );
 }
 #endif
-#if 0
+
 FIXTURE_TEST_CASE( HttpRefreshTestSuite_ReadCloseToExpiration, CloudFixture )
 {
     //TestEnv::verbosity = LogLevel::e_message;
@@ -304,7 +304,7 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_ReadCloseToExpiration, CloudFixture )
     // verify that the last request was done on the same redirected URL
     REQUIRE_NE ( string::npos, TestStream::m_requests . back() . find( newAwsHost ) );
 }
-#endif
+
 //////////////////////////////////////////// Main
 
 #include <kapp/args.h> // Args

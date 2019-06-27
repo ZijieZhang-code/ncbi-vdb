@@ -97,6 +97,7 @@ VDB_LIB_CMN =    \
 	mbedcrypto   \
 	kns          \
 	kfg          \
+	cloud        \
 	krypto       \
 	ksrch        \
 	kfs          \
@@ -110,7 +111,6 @@ VDB_LIB_CMN =    \
 VDB_LIB_RD =              \
 	align-reader          \
 	ascp                  \
-	cloud                  \
 	$(EXT_SCHEMA_MODULES) \
 	srareader             \
 	sradb                 \
