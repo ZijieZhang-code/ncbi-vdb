@@ -217,7 +217,7 @@ public:
     {
         ofstream out( p_name . c_str() );
         out << p_content;
-    }    
+    }
 
     AWS * m_aws;
 };
@@ -271,7 +271,9 @@ FIXTURE_TEST_CASE(AWS_ToCloud, AwsFixture)
 
 FIXTURE_TEST_CASE(AWS_Credentials_Blank, AwsFixture)
 {
-    // block cloud discovery to make sure the credentials are left blank
+    // block cloud discovery and home directory lookup to make sure the credentials are left blank
+    setenv ( "HOME", ".", 1 );
+
     MakeAWS();
 
     REQUIRE_NULL ( m_aws -> access_key_id );
