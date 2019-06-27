@@ -3180,7 +3180,7 @@ rc_t SRequestInitNamesSCgiRequest ( SRequest * request, SHelper * helper,
     }
 
     if (rc == 0) {
-        else if (SVersionNeedCloudEnvironment(request->version, request->sdl))
+        if (SVersionNeedCloudEnvironment(request->version, request->sdl))
             rc = SCgiRequestAddCloudEnvironment(self, helper);
     }
 
