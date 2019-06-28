@@ -108,7 +108,6 @@ public:
     static constexpr const char * NonCloudUrl = "https://ncbi.nlm.nih.gov/accession";
 };
 
-#if 0
 FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_NotCloud, CloudFixture )
 {
     //TestEnv::verbosity = LogLevel::e_message;
@@ -264,16 +263,16 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_RedirectSignedURL_AWS_Token_Payer, Cloud
     REQUIRE ( StringPresent ( redirReq, "x-amz-request-payer" ) );
 }
 #endif
-#endif
+
 FIXTURE_TEST_CASE( HttpRefreshTestSuite_ReadCloseToExpiration, CloudFixture )
 {
-    TestEnv::verbosity = LogLevel::e_message;
+    //TestEnv::verbosity = LogLevel::e_message;
     string url = MakeURL(GetName());
 
     KTime_t expTime = KTimeStamp () + 65;
     RespondWithRedirect ( AwsUrl, expTime );
     // HEAD will be converted to POST and return the initial portion of the target file
-    RespondToHEAD("the first bytes of the file");
+    RespondToHEAD(string(2048, 'a'));
 
     // reliable, needs an environment token, no requester-info
     REQUIRE_RC ( KNSManagerMakeReliableHttpFile( m_mgr, ( const KFile** ) &  m_file, & m_stream, 0x01010000, true, true, false, url . c_str () ) );
@@ -285,7 +284,6 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_ReadCloseToExpiration, CloudFixture )
     REQUIRE_EQ ( url, string ( (const char*) httpFile . orig_url_buffer . base ) );
     REQUIRE_EQ ( string ( AwsUrl ), string ( (const char*) httpFile . url_buffer . base ) );
     REQUIRE_EQ ( expTime, KTimeMakeTime ( & httpFile . url_expiration ) );
-#if 0
 
     // use GET to read a portion of the file
     RespondToGET();
@@ -316,7 +314,23 @@ FIXTURE_TEST_CASE( HttpRefreshTestSuite_ReadCloseToExpiration, CloudFixture )
     REQUIRE_EQ ( newExpTime, KTimeMakeTime ( & httpFile . url_expiration ) ); // expiration did not change
     // verify that the last request was done on the same redirected URL
     REQUIRE_NE ( string::npos, TestStream::m_requests . back() . find( newAwsHost ) );
-#endif
+}
+
+FIXTURE_TEST_CASE( HttpRefreshTestSuite_HeadAsPost_ShortFile, CloudFixture )
+{
+    TestEnv::verbosity = LogLevel::e_message;
+    string url = MakeURL(GetName());
+
+    // HEAD will be converted to POST and return the initial portion of the target file
+    RespondToHEAD(string(10, 'a')); // this is shorter than POST will request (256)
+
+    // reliable, needs an environment token, no requester-info
+    REQUIRE_RC ( KNSManagerMakeReliableHttpFile( m_mgr, ( const KFile** ) &  m_file, & m_stream, 0x01010000, true, true, false, url . c_str () ) );
+    REQUIRE_NOT_NULL ( m_file ) ;
+
+    // use GET to read a portion of the file
+    RespondToGET();
+    REQUIRE_RC( KFileTimedRead ( m_file, 0, m_buf, sizeof m_buf, & num_read, NULL ) );
 }
 
 //////////////////////////////////////////// Main

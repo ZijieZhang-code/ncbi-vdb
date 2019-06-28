@@ -354,6 +354,10 @@ rc_t KHttpFileTimedReadInt ( const KHttpFile * self,
                     {
                         TRACE ( "KClientHttpResultRange ( rslt, & start_pos, & result_size ); "
                                 "short read: result_size=%lu != bsize=%lu\n", result_size, bsize );
+                        if ( result_size > bsize )
+                        {
+                            result_size = bsize;
+                        }
                     }
 
                     rc = KClientHttpResultGetInputStream ( rslt, & response );
@@ -1315,7 +1319,7 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                             /* see if the server accepts partial content range requests */
                                             char buffer[1024];
                                             size_t num_read;
-                                            bool accept_ranges = KClientHttpResultGetHeader ( self, "Content-Range", buffer, sizeof buffer, &num_read ) == 0 ||
+                                            bool accept_ranges = KClientHttpResultGetHeader ( rslt, "Content-Range", buffer, sizeof buffer, &num_read ) == 0 ||
                                                                  KClientHttpResultTestHeaderValue ( rslt, "Accept-Ranges", "bytes" );
 
                                             /* check the result status */
