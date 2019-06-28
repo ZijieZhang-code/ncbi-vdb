@@ -844,6 +844,72 @@ TEST_CASE ( AllowAllCertificates )
     REQUIRE_RC ( KNSManagerSetAllowAllCerts ( mgr, allow_all_certs ) );
 }
 
+// KClientHttpResult
+
+FIXTURE_TEST_CASE( KClientHttpResult_Size_HEAD, HttpFixture)
+{
+    KClientHttpRequest *req;
+    KNSManagerMakeClientRequest ( m_mgr, &req, 0x01010000, & m_stream, MakeURL(GetName()).c_str()  );
+
+    TestStream::AddResponse(
+        "HTTP/1.1 200 \r\n"
+        "content-length: 2975717 \r\n"
+        "\r\n");
+
+    KClientHttpResult *rslt;
+    REQUIRE_RC ( KClientHttpRequestHEAD ( req, & rslt ) );
+    uint64_t size = 0;
+    REQUIRE ( KClientHttpResultSize ( rslt, &size ) );
+    REQUIRE_EQ ( (uint64_t)2975717, size );
+
+    REQUIRE_RC ( KClientHttpResultRelease ( rslt ) );
+    REQUIRE_RC ( KClientHttpRequestRelease ( req ) );
+}
+
+FIXTURE_TEST_CASE( KClientHttpResult_Size_RangedGET, HttpFixture)
+{
+    KClientHttpRequest *req;
+    KNSManagerMakeClientRequest ( m_mgr, &req, 0x01010000, & m_stream, MakeURL(GetName()).c_str()  );
+    REQUIRE_RC ( KClientHttpRequestByteRange ( req, 0, 2 ) );
+
+    TestStream::AddResponse(
+        "HTTP/1.1 206 \r\n"
+        "content-length: 2\r\n"
+        "content-range: bytes 0-1/2975717        \r\n"  // if content-range is present, retrieve total from it, not content-length
+        "\r\n");
+
+    KClientHttpResult *rslt;
+    REQUIRE_RC ( KClientHttpRequestGET ( req, & rslt ) );
+    uint64_t size = 0;
+    REQUIRE ( KClientHttpResultSize ( rslt, &size ) );
+    REQUIRE_EQ ( (uint64_t)2975717, size );
+
+    REQUIRE_RC ( KClientHttpResultRelease ( rslt ) );
+    REQUIRE_RC ( KClientHttpRequestRelease ( req ) );
+}
+
+FIXTURE_TEST_CASE( KClientHttpResult_Size_RangedPOST, HttpFixture)
+{
+    KClientHttpRequest *req;
+    KNSManagerMakeClientRequest ( m_mgr, &req, 0x01010000, & m_stream, MakeURL(GetName()).c_str()  );
+    REQUIRE_RC ( KClientHttpRequestByteRange ( req, 0, 2 ) );
+
+    TestStream::AddResponse(
+        "HTTP/1.1 206 \r\n"
+        "content-length: 2\r\n"
+        "content-range: bytes 0-1/2975717        \r\n"  // if content-range is present, retrieve total from it, not content-length
+        "\r\n");
+
+    KClientHttpResult *rslt;
+    REQUIRE_RC ( KClientHttpRequestPOST ( req, & rslt ) );
+    uint64_t size = 0;
+    REQUIRE ( KClientHttpResultSize ( rslt, &size ) );
+    REQUIRE_EQ ( (uint64_t)2975717, size );
+
+    REQUIRE_RC ( KClientHttpResultRelease ( rslt ) );
+    REQUIRE_RC ( KClientHttpRequestRelease ( req ) );
+}
+
 //////////////////////////////////////////// Main
 
 static rc_t argsHandler ( int argc, char * argv [] ) {

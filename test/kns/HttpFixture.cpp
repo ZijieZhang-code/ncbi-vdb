@@ -75,6 +75,10 @@ TestStream :: TimedRead ( const KSTREAM_IMPL *self, void *buffer, size_t bsize, 
         response = m_responses.front();
         m_responses.pop_front();
     }
+    else
+    {
+        throw logic_error ( "TestStream: TimedRead is out of responses" );
+    }
 
     if ( response.size() >= bsize )
     {

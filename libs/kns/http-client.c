@@ -2172,18 +2172,20 @@ LIB_EXPORT bool CC KClientHttpResultKeepAlive ( const KClientHttpResult *self )
 
 
 /* Range
- *  retrieves position and partial size for partial requests
+ *  retrieves position, partial size and total size for partial requests
  *
  *  "pos" [ OUT ] - offset to beginning portion of response
  *
  *  "bytes" [ OUT ] - size of range
+ *
+ *  "_total" [ OUT, NULL OK ] - total size of file
  *
  *  HERE WE NEED TO HAVE PASSED THE RANGE REQUEST TO THE RESULT ON CREATION,
  *  AND WE WILL RESPOND TO THE HTTP "PARTIAL RESULT" OR WHATEVER RETURN CODE,
  *  AND BASICALLY UPDATE WHAT THE RANGE WAS.
  */
 static
-rc_t KClientHttpResultHandleContentRange ( const KClientHttpResult *self, uint64_t *pos, size_t *bytes )
+rc_t KClientHttpResultHandleContentRange ( const KClientHttpResult *self, uint64_t *pos, size_t *bytes, size_t *_total )
 {
     rc_t rc;
     size_t num_read;
@@ -2278,6 +2280,10 @@ rc_t KClientHttpResultHandleContentRange ( const KClientHttpResult *self, uint64
                                    so "Content-Length" may not exist. */
                                 * pos = start_pos;
                                 * bytes = end_pos - start_pos + 1;
+                                if ( _total != NULL )
+                                {
+                                    * _total = total;
+                                }
 
                                 return 0;
                             }
@@ -2312,6 +2318,10 @@ rc_t KClientHttpResultHandleContentRange ( const KClientHttpResult *self, uint64
                                     /* assign to OUT params */
                                     * pos = start_pos;
                                     * bytes = length;
+                                    if ( _total != NULL )
+                                    {
+                                        * _total = total;
+                                    }
 
                                     return 0;
                                 }
@@ -2340,7 +2350,7 @@ LIB_EXPORT rc_t CC KClientHttpResultRange ( const KClientHttpResult *self, uint6
         {
         case 206:
             /* partial content */
-            rc = KClientHttpResultHandleContentRange ( self, pos, bytes );
+            rc = KClientHttpResultHandleContentRange ( self, pos, bytes, NULL );
             if ( rc == 0 )
                 return 0;
 
@@ -2379,6 +2389,19 @@ LIB_EXPORT bool CC KClientHttpResultSize ( const KClientHttpResult *self, uint64
         size_t num_read;
         char buffer [ 1024 ];
         const size_t bsize = sizeof buffer;
+
+        /* check for content-range */
+        {
+            uint64_t pos;
+            size_t bytes;
+            size_t total;
+            rc = KClientHttpResultHandleContentRange ( self, & pos, & bytes, & total );
+            if ( rc == 0 )
+            {
+                * size = total;
+                return true;
+            }
+        }
 
         /* check for content-length */
         rc = KClientHttpResultGetHeader ( self, "Content-Length", buffer, bsize, & num_read );
@@ -2641,14 +2664,16 @@ struct KClientHttpRequest
     KRefcount refcount;
     bool accept_not_modified;
 
-    bool payRequired; /* required to access this URL */
+    bool ceRequired; /* computing environment token required to access this URL */
+    bool payRequired; /* payment info required to access this URL */
 };
 
-void KClientHttpRequestSetPayRequired(struct KClientHttpRequest * self,
-    const KNSManager *mgr, bool payRequired)
+void KClientHttpRequestSetCloudParams(struct KClientHttpRequest * self,
+    bool ceRequired, bool payRequired)
 {
     if (self != NULL)
     {
+        self->ceRequired = ceRequired;
         self->payRequired = payRequired;
     }
 }
@@ -3501,10 +3526,15 @@ FormatForCloud( const KClientHttpRequest *cself, const char *method )
             if ( rc == 0 )
             {
                 rc = CloudAddAuthentication ( cloud, self, method );
+                if ( rc == 0 && cself ->payRequired )
+                {
+                    rc = CloudAddUserPaysCredentials( cloud, self, method );
+                }
                 CloudRelease ( cloud );
             }
             CloudMgrRelease ( cloudMgr );
         }
+
     }
     return rc;
 }
@@ -3690,15 +3720,8 @@ rc_t KClientHttpRequestHandleRedirection ( KClientHttpRequest *self, const char 
         DBGMSG(DBG_KNS, DBG_FLAG(DBG_KNS_HTTP), ("Redirected to '%S'\n", & loc -> value ) );
         if ( exp != NULL )
         {
-            if ( expiration != NULL )
-            {
-                DBGMSG(DBG_KNS, DBG_FLAG(DBG_KNS_HTTP), ("'To' URL expires at '%S'\n", & exp -> value ) );
-                * expiration = string_dup( exp -> value . addr, exp -> value . size );
-            }
-            else
-            {
-                * expiration = NULL;
-            }
+            DBGMSG(DBG_KNS, DBG_FLAG(DBG_KNS_HTTP), ("'To' URL expires at '%S'\n", & exp -> value ) );
+            * expiration = string_dup( exp -> value . addr, exp -> value . size );
         }
 
         /* pull out uri */
@@ -3777,12 +3800,11 @@ rc_t KClientHttpRequestSendReceiveNoBodyInt ( KClientHttpRequest *self, KClientH
                 break;
         }
 
-        /* look at status code */
         rslt = * _rslt;
-
         rslt -> expiration = expiration; /* expiration has to reach the caller */
         expiration = NULL;
 
+        /* look at status code */
         switch ( rslt -> status )
         {
         case 200:
@@ -3887,33 +3909,37 @@ rc_t KClientHttpRequestSendReceiveNoBody ( KClientHttpRequest *self, KClientHttp
  */
 LIB_EXPORT rc_t CC KClientHttpRequestHEAD ( KClientHttpRequest *self, KClientHttpResult **rslt )
 {
-    /* if payment is required, use GET for 256 bytes */
-    if ( self -> payRequired )
-    {
-        const size_t HeadSize = 256;
-        uint64_t result_size64 = HeadSize;
+    if ( self -> ceRequired || self -> payRequired )
+    {   /* use POST or GET for 256 bytes */
 
         /* update UserAgent with -head */
         const char * user_agent;
         rc_t rc = KNSManagerGetUserAgent ( & user_agent );
         if ( rc == 0 )
         {
+            const size_t HeadSize = 256;
             KNSManagerSetUserAgent ( (KNSManager*)self->http->mgr, "%s-head", user_agent );
 
-            /* add Range Header 0..255 */
-            rc = KClientHttpRequestByteRange ( self, 0, 256 );
+            /* add header "Range bytes = 0,HeadSize" */
+            rc = KClientHttpRequestByteRange ( self, 0, HeadSize );
             if ( rc == 0 )
             {
-                rc = KClientHttpRequestSendReceiveNoBody ( self, rslt, "GET" );
+                rc = self -> ceRequired ? KClientHttpRequestPOST ( self, rslt ) : KClientHttpRequestGET ( self, rslt );
                 if ( rc == 0 )
                 {
-                    KStream * response;
                     char buf [ HeadSize ];
+                    uint64_t result_size64 = sizeof buf;
+                    KStream * response;
 
                     /* extractSize */
                     KClientHttpResultSize ( *rslt, & result_size64 );
 
-                    /* consume and discard Size bytes */
+                    if ( result_size64 > sizeof buf ) /* unlikely but would be very unpleasant */
+                    {
+                        result_size64 = sizeof buf;
+                    }
+
+                    /* consume and discard result_size64 bytes */
                     rc = KClientHttpResultGetInputStream ( *rslt, & response );
                     if ( rc == 0 )
                     {
@@ -3922,6 +3948,8 @@ LIB_EXPORT rc_t CC KClientHttpRequestHEAD ( KClientHttpRequest *self, KClientHtt
                     }
                 }
             }
+
+            KNSManagerSetUserAgent ( (KNSManager*)self->http->mgr, "%s", user_agent );
         }
         return rc;
     }
@@ -3948,6 +3976,8 @@ rc_t CC KClientHttpRequestPOST_Int ( KClientHttpRequest *self, KClientHttpResult
 
     uint32_t i;
     const uint32_t max_redirect = 5;
+
+    char * expiration = NULL;
 
     /* TBD comment - add debugging test to ensure "Content-Length" header not present */
 
@@ -4011,8 +4041,11 @@ rc_t CC KClientHttpRequestPOST_Int ( KClientHttpRequest *self, KClientHttpResult
                 break;
         }
 
-        /* look at status code */
         rslt = * _rslt;
+        rslt -> expiration = expiration; /* expiration has to reach the caller */
+        expiration = NULL;
+
+        /* look at status code */
         switch ( rslt -> status )
         {
         case 200:
@@ -4060,7 +4093,7 @@ rc_t CC KClientHttpRequestPOST_Int ( KClientHttpRequest *self, KClientHttpResult
         }
 
         /* reset connection, reset request */
-        rc = KClientHttpRequestHandleRedirection ( self, "POST", rslt, NULL );
+        rc = KClientHttpRequestHandleRedirection ( self, "POST", rslt, & expiration );
         if ( rc != 0 )
             break;
     }

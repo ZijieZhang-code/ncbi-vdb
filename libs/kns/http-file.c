@@ -190,14 +190,20 @@ rc_t KHttpFileMakeRequest ( const KHttpFile *cself, uint64_t pos, size_t req_siz
 
             if ( rc == 0 )
             {
-                if ( cself -> need_env_token )
+                KClientHttpRequestSetCloudParams(req, cself -> need_env_token/*//AB only if not temporary?*/, cself -> payRequired);
+                if ( cself -> need_env_token && ! self -> url_is_temporary)
                 {
+                    KClientHttpRequestSetCloudParams(req, true, cself -> payRequired);
                     KClientHttpRequestAttachEnvironmentToken ( req );
+                    /* TBD - there should be a version of POST that takes a timeout */
+                    rc = KClientHttpRequestPOST ( req, rslt );
                 }
-                KClientHttpRequestSetPayRequired(req, NULL, cself->payRequired);
+                else
+                {
+                    /* TBD - there should be a version of GET that takes a timeout */
+                    rc = KClientHttpRequestGET ( req, rslt );
+                }
 
-                /* TBD - there should be a version of GET that takes a timeout */
-                rc = KClientHttpRequestGET ( req, rslt );
                 if ( rc != 0 )
                     TRACE ( "KClientHttpRequestGET ( req, & rslt ); failed: rc=%u\n", rc );
                 else
@@ -1263,11 +1269,12 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                     {
                                         KClientHttpResult *rslt;
 
+                                        //AB repeat a similar dance when refreshing? - yes!
                                         if ( need_env_token )
                                         {
                                             KClientHttpRequestAttachEnvironmentToken ( req );
                                         }
-                                        KClientHttpRequestSetPayRequired ( req, self, payRequired );
+                                        KClientHttpRequestSetCloudParams ( req, need_env_token, payRequired );
 
                                         rc = KClientHttpRequestHEAD ( req, & rslt );
                                         if ( rc == 0 && rslt -> expiration != NULL )
@@ -1303,11 +1310,14 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                             uint64_t size;
                                             uint32_t status;
 
-                                            /* get the file size from HEAD query */
+                                            /* get the file size */
                                             bool have_size = KClientHttpResultSize ( rslt, & size );
 
                                             /* see if the server accepts partial content range requests */
-                                            bool accept_ranges = KClientHttpResultTestHeaderValue ( rslt, "Accept-Ranges", "bytes" );
+                                            char buffer[1024];
+                                            size_t num_read;
+                                            bool accept_ranges = KClientHttpResultGetHeader ( self, "Content-Range", buffer, sizeof buffer, &num_read ) == 0 ||
+                                                                 KClientHttpResultTestHeaderValue ( rslt, "Accept-Ranges", "bytes" );
 
                                             /* check the result status */
                                             rc = KClientHttpResultStatus ( rslt, & status, NULL, 0, NULL );
