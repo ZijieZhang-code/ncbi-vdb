@@ -190,8 +190,8 @@ rc_t KHttpFileMakeRequest ( const KHttpFile *cself, uint64_t pos, size_t req_siz
 
             if ( rc == 0 )
             {
-                KClientHttpRequestSetCloudParams(req, cself -> need_env_token/*//AB only if not temporary?*/, cself -> payRequired);
-                if ( cself -> need_env_token && ! self -> url_is_temporary)
+                KClientHttpRequestSetCloudParams(req, cself -> need_env_token, cself -> payRequired);
+                if ( cself -> need_env_token && ! cself -> url_is_temporary)
                 {
                     KClientHttpRequestSetCloudParams(req, true, cself -> payRequired);
                     KClientHttpRequestAttachEnvironmentToken ( req );
@@ -1269,7 +1269,6 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                     {
                                         KClientHttpResult *rslt;
 
-                                        //AB repeat a similar dance when refreshing? - yes!
                                         if ( need_env_token )
                                         {
                                             KClientHttpRequestAttachEnvironmentToken ( req );
@@ -1281,7 +1280,7 @@ static rc_t KNSManagerVMakeHttpFileInt ( const KNSManager *self,
                                         {   /* retrieve and save the URL expiration time */
                                             f -> url_is_temporary = true;
                                             KTimeFromIso8601 ( & f -> url_expiration, rslt -> expiration, string_size ( rslt -> expiration ) );
-//KNSTODO: still, handle the expiration in read methods (find out how AWS/GCP signal expiration)
+//TODO: still, handle the expiration in read methods (find out how AWS/GCP signal expiration)
                                         }
 
                                         /* update url_buffer with the (possibly different and/or temporary) URL*/

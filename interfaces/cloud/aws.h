@@ -68,30 +68,6 @@ CLOUD_EXTERN rc_t CC AWSRelease ( const AWS * self );
 CLOUD_EXTERN rc_t CC AWSToCloud ( const AWS * self, Cloud ** cloud );
 CLOUD_EXTERN rc_t CC CloudToAWS ( const Cloud * self, AWS ** aws );
 
-#if 0    
-
-struct KNSManager;
-
-
- /* MakeAwsAuthenticationHeader
- *  constructs the Authorization request header value
- *
- *  AWSAccessKeyId [ IN ] - AWS access key ID
- *  YourSecretAccessKeyID [ IN ] - AWS secret access key
- *  StringToSign [ IN ] - String To Sign
- *  dst [ OUT ] - destination buffer, NULL-terminated
- *  dlen [ IN ] - size of the destination buffer
- */
-KNS_EXTERN rc_t CC KNSManagerMakeAwsAuthenticationHeader(
-    const struct KNSManager *self,
-    const char *AWSAccessKeyId,
-    const char *YourSecretAccessKeyID,
-    const char *StringToSign,
-    char *dst, size_t dlen);
-
-#endif
-
-
 #ifdef __cplusplus
 }
 #endif

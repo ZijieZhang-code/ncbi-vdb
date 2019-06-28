@@ -90,15 +90,15 @@ rc_t CC AWSMakeComputeEnvironmentToken ( const AWS * self, const String ** ce_to
         rc = MakeLocality(pkcs7, document, locality, sizeof locality);
 
     if (rc == 0) {
-        uint32_t len = string_measure(locality, NULL) + 1;
-        String * s = calloc(1, sizeof * s + len);
+        uint32_t len = string_measure(locality, NULL);
+        String * s = calloc(1, sizeof * s + len + 1);
         if (s == NULL)
             rc = RC(rcCloud, rcMgr, rcAccessing, rcMemory, rcExhausted);
         else {
             char * p = NULL;
             assert(s && len);
             p = (char *)s + sizeof * s;
-            rc = string_printf(p, len, NULL, "%s", locality);
+            rc = string_printf(p, len + 1, NULL, "%s", locality);
             if (rc == 0) {
                 StringInit(s, p, len, len);
                 assert(ce_token);
@@ -181,7 +181,7 @@ LIB_EXPORT rc_t CC CloudMgrMakeAWS ( const CloudMgr * self, AWS ** p_aws )
     {
         /* capture from self->kfg */
         bool user_agrees_to_pay = false;
-        
+
         rc = CloudInit ( & aws -> dad, ( const Cloud_vt * ) & AWS_vt_v1, "AWS", self -> kns, user_agrees_to_pay );
         if ( rc == 0 )
         {
@@ -505,11 +505,11 @@ static rc_t LoadCredentials ( AWS * self  )
     if ( rc ) return rc;
 
     const char *conf_env = getenv ( "AWS_CONFIG_FILE" );
-    if ( conf_env ) 
+    if ( conf_env )
     {
         const KFile *cred_file = NULL;
         rc = KDirectoryOpenFileRead ( wd, &cred_file, "%s", conf_env );
-        if ( rc == 0 ) 
+        if ( rc == 0 )
         {
             aws_parse_file ( self, cred_file );
             KFileRelease ( cred_file );
@@ -519,7 +519,7 @@ static rc_t LoadCredentials ( AWS * self  )
     }
 
     const char *cred_env = getenv ( "AWS_SHARED_CREDENTIAL_FILE" );
-    if ( cred_env ) 
+    if ( cred_env )
     {
         const KFile *cred_file = NULL;
         rc = KDirectoryOpenFileRead ( wd, &cred_file, "%s", cred_env );
@@ -536,7 +536,7 @@ static rc_t LoadCredentials ( AWS * self  )
         char home[4096] = "";
         make_home_node ( home, sizeof home );
 
-        if ( home[0] != 0 ) 
+        if ( home[0] != 0 )
         {
             char aws_path[4096] = "";
             size_t num_writ = 0;
@@ -545,7 +545,7 @@ static rc_t LoadCredentials ( AWS * self  )
             {
                 const KFile *cred_file = NULL;
                 rc = KDirectoryOpenFileRead ( wd, &cred_file, "%s%s", aws_path, "/credentials" );
-                if ( rc == 0 ) 
+                if ( rc == 0 )
                 {
                     aws_parse_file ( self, cred_file );
                     KFileRelease ( cred_file );
@@ -615,69 +615,6 @@ rc_t PopulateCredentials ( AWS * self )
     LoadCredentials ( self );
     return 0;
 }
-
-#if 0
-
-    /* Check AWS_CONFIG_FILE and AWS_SHARED_CREDENTIAL_FILE, if specified check for credentials and/or profile name */
-    const char *conf_env = getenv ( "AWS_CONFIG_FILE" );
-    if ( conf_env == NULL )
-    {
-        conf_env = getenv ( "AWS_SHARED_CREDENTIAL_FILE" );
-    }
-    if ( conf_env )
-    {
-        KDirectory *wd = NULL;
-        const KFile *cred_file = NULL;
-
-        rc = KDirectoryNativeDir ( &wd );
-        if ( rc != 0 )
-        {
-            return rc;
-        }
-
-        rc = KDirectoryOpenFileRead ( wd, &cred_file, "%s", conf_env );
-        if ( rc == 0 )
-        {
-            aws_parse_file ( self, cred_file );
-            KFileRelease ( cred_file );
-        }
-        KDirectoryRelease ( wd );
-        if ( rc != 0 )
-        {
-            return rc;
-        }
-        if ( self -> access_key_id != NULL && self -> secret_access_key != NULL )
-        {
-            return 0;
-        }
-
-        /* proceed to other sources */
-    }
-
-    /* Check paths and parse */
-    char home[4096] = "";
-    make_home_node ( self, home, sizeof home );
-
-    if ( home[0] != 0 ) {
-        char path[4096] = "";
-        size_t num_writ = 0;
-        rc = string_printf ( path, sizeof path, &num_writ, "%s/.aws", home );
-        if ( rc == 0 && num_writ != 0 ) {
-            /* Use config files */
-            if ( rc == 0 ) {
-                rc = aws_find_nodes ( aws_node, path, &sprofile );
-                if ( rc ) {
-                    /* OK if no .aws available */
-                    rc = 0;
-                }
-            }
-        }
-    }
-
-    KConfigNodeRelease ( aws_node );
-    return rc;
-}
-#endif
 
 LIB_EXPORT rc_t CC CloudToAWS(const Cloud * self, AWS ** aws)
 {
