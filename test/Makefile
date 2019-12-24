@@ -35,6 +35,7 @@ include $(TOP)/build/Makefile.config
 # default
 #
 SUBDIRS =       \
+    kns         \
     ktst        \
     cc          \
     ext         \
@@ -46,7 +47,6 @@ SUBDIRS =       \
     kapp        \
     vfs         \
     cloud       \
-    kns         \
     kdb         \
     kproc       \
     vdb         \
