@@ -275,6 +275,12 @@ static rc_t alignment_flag ( char *flags, uint32_t num_flags, int32_t *field_wid
     if ( rc != 0 )
         return rc;
 
+#if LINUX
+    /* See man 3 printf; 0 flag "For other conversions, the behavior is undefined." */
+    if (strchr("diouxXaAeEfFgG", storage_class) == NULL)
+        return 0;
+#endif
+
     /* with zer-padding left-fill */
     flags [ num_flags ] = '0';
     flags [ num_flags + 1 ] = 0;
